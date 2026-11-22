@@ -1,0 +1,14 @@
+node_modules/
+coverage/
+.cache/
+.DS_Store
+.idea/
+.vscode/
+*.log
+*.tgz
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+# client.js is the installable DSH entry and must be tracked.

@@ -1,0 +1,3 @@
+- insert:
+    - id: dsh-model-tier-slider
+      name: '@charleypeng/dsh-model-tier-slider'

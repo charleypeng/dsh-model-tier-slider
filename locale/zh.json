@@ -1,0 +1,18 @@
+{
+  "meta": {
+    "title": "charleypeng/dsh-model-tier-slider",
+    "description": "在输入框切换当前会话的模型与推理档位。档位由模型提供方决定。DSH 也会将成功的选择保存为后续会话的默认值。"
+  },
+  "ui": {
+    "selectEffort": "推理档位",
+    "selectModel": "选择模型",
+    "fast": "快速模式",
+    "reset": "恢复模型默认档位",
+    "unsupported": "当前模型未提供可选推理档位。",
+    "higherUsage": "用量较高",
+    "defaultTier": "模型默认",
+    "requiresFast": "需要快速模式",
+    "retry": "重试",
+    "unavailable": "不可用"
+  }
+}

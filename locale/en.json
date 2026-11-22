@@ -1,0 +1,18 @@
+{
+  "meta": {
+    "title": "charleypeng/dsh-model-tier-slider",
+    "description": "Change the current session’s model and reasoning effort in the composer. Available levels come from the model provider. Harness also saves a successful selection as the default for future sessions."
+  },
+  "ui": {
+    "selectEffort": "Reasoning effort",
+    "selectModel": "Select model",
+    "fast": "Fast mode",
+    "reset": "Reset to model default",
+    "unsupported": "This model does not offer selectable reasoning levels.",
+    "higherUsage": "Higher usage",
+    "defaultTier": "Model default",
+    "requiresFast": "Requires fast mode",
+    "retry": "Retry",
+    "unavailable": "Not available"
+  }
+}
