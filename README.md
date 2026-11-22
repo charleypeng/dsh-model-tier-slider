@@ -1,13 +1,36 @@
 # charleypeng/dsh-model-tier-slider
 
-DeepSeek Harness 模型档位滑杆。克隆本仓库后，可以直接在 DSH 中选择仓库目录安装，无需先构建。若已安装旧版 `@local/model-tier-replica`，请先禁用旧版，避免两个选择器争用同一位置。
+**English** · [简体中文](README.zh.md)
 
-点击输入栏的模型名，拖动圆形滑块预览推理档位；松开时才提交，提交期间滑块停在你放下的位置，等会话确认后再对齐。也可以使用方向键。点卡片中央的模型名称可切换模型，列表按提供方分组；右上角的回转箭头恢复当前模型默认档位。Esc 或点外部关闭。
+Adjust reasoning effort in the DeepSeek Harness composer with a slider. The slider shows the levels supported by the current model, and the model picker groups models by provider.
 
-档位由已连接的模型提供方声明，并非每个模型都有视频里的六档。最高档以蓝紫渐变和星点表示；系统设置减少动态效果时停止动画。DSH 没有独立的快速模式接口，因此不提供闪电按钮。
+## Installation
 
-使用 DSH 原生选择接口：影响当前会话后续请求，并可能更新新会话的默认选择；不改变已经发出的请求。禁用插件即可恢复原生选择器。
+For the desktop and web composer in DeepSeek Harness 0.2.2-rc.5. Clone the repository, then open **Plugins → Add plugin** in DSH and select the `dsh-model-tier-slider` directory. No build step is required.
 
-适用于 DeepSeek Harness 0.2.2-rc.5 桌面/Web 输入栏。通过「插件 → 添加插件」选择本目录安装。源码构建：`node build.mjs`；逻辑测试：`node --test controller.test.mjs`。
+```sh
+git clone https://github.com/charleypeng/dsh-model-tier-slider.git
+```
 
-许可证：[MIT](LICENSE)。
+If you have the older `@local/model-tier-replica` installed, disable it first. Both plugins replace the same model selector.
+
+## Usage
+
+Click the model name in the composer to open the panel. Drag the thumb to preview an effort level and release to apply it, or focus the slider and use the arrow keys. Click the model name in the middle of the panel to switch models. The reset arrow in the upper-right corner restores the current model’s default effort. Press `Esc` or click outside to close the panel.
+
+A blue-to-purple gradient with stars marks the highest level. The animation stops when your system’s reduced-motion setting is on. The plugin does not add unsupported effort levels or a separate fast mode.
+
+Changes use DSH’s native model selector API. They apply to future requests in the current session and may also update the default for new sessions. Requests already sent are unaffected. Disable the plugin to restore the built-in selector.
+
+## Development
+
+From the repository root, build the plugin and run its tests:
+
+```sh
+node build.mjs
+node --test controller.test.mjs
+```
+
+## License
+
+[MIT](LICENSE)
