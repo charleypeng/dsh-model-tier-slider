@@ -11,3 +11,52 @@
 .mtr-track input{pointer-events:none}
 @media(prefers-reduced-motion:reduce){.mtr-track{--mtr-snap:0s linear}}
 .mtr-list{max-height:min(300px,46vh);overflow:auto}.mtr-group+.mtr-group{border-top:1px solid var(--dsw-alias-border-l1);margin-top:3px;padding-top:3px}.mtr-panel .mtr-group-name{font-size:11px;font-weight:560;padding:6px 5px 2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.mtr-caption{font-size:12px;padding:4px 3px}.mtr-panel .mtr-option{display:flex;width:100%;justify-content:space-between;align-items:center;gap:8px;padding:7px 5px;border-radius:7px;text-align:left}.mtr-error{color:var(--dsw-alias-state-error-primary);font-size:12px;margin-top:8px;overflow-wrap:anywhere}@keyframes mtr-flow{to{background-position:100% 50%}}@keyframes mtr-drift{to{background-position:37px 0,53px 0}}@media(prefers-reduced-motion:reduce){.mtr-track.ultra .mtr-fill,.mtr-stars{animation:none}}.mtr-trigger>.mtr-mini{display:var(--dsh-composer-model-icon-display,none);line-height:0}.mtr-trigger>strong,.mtr-trigger>span{display:var(--dsh-composer-model-text-display,inline)}
+
+.mtr-fast-wrap{justify-self:start}
+.mtr-fast svg{fill:none;stroke:currentColor;stroke-width:1.7;stroke-linejoin:round}
+.mtr-panel .mtr-fast[aria-pressed=true]{color:var(--mtr-blue)}
+.mtr-panel .mtr-fast.mtr-fast-ultra[aria-pressed=true]{color:#8b5cf6}
+.mtr-fast[aria-pressed=true] svg{fill:currentColor}
+.mtr-panel .mtr-fast[aria-disabled=true]{cursor:default}
+.mtr-panel .mtr-fast[aria-busy=true] svg{opacity:.55}
+
+.mtr-fast-tip{
+  position:fixed;inset:auto;z-index:1;box-sizing:border-box;margin:0;padding:0 0 5px;border:0;
+  width:max-content;max-width:min(220px,calc(100vw - 12px));overflow:visible;
+  background:none;color:#fafafa;visibility:hidden;
+}
+.mtr-fast-tip[hidden]{display:none}
+.mtr-fast-tip[data-side=below]{padding:5px 0 0}
+.mtr-fast-tip-body{
+  display:grid;gap:2px;padding:6px 10px;border-radius:10px;overflow-wrap:anywhere;
+  background:#18191c;box-shadow:0 4px 12px #0003;text-align:center;font-size:12px;
+}
+.mtr-fast-tip-body small{font-size:inherit;color:#c4c7cc}
+
+/* Two independently drifting fields, cropped by the same fill edge as the thumb. */
+.mtr-fast-active .mtr-stars{background:none;animation:none}
+.mtr-fast-active .mtr-stars::before,.mtr-fast-active .mtr-stars::after{content:'';position:absolute;inset:0}
+.mtr-fast-active .mtr-stars::before{
+  --mtr-star-travel:61px;
+  background:
+    radial-gradient(circle at 7px 8px,#fffd .7px,transparent 1.25px),
+    radial-gradient(circle at 26px 17px,#fff9 .6px,transparent 1.1px),
+    radial-gradient(circle at 46px 11px,#fffb .8px,transparent 1.4px);
+  background-size:var(--mtr-star-travel) 24px;
+  animation:mtr-fast-drift 4.8s linear infinite;
+}
+.mtr-fast-active .mtr-stars::after{
+  --mtr-star-travel:83px;
+  background:
+    radial-gradient(circle at 14px 15px,#fff7 .6px,transparent 1.2px),
+    radial-gradient(circle at 35px 6px,#fff9 .7px,transparent 1.2px),
+    radial-gradient(circle at 65px 17px,#fffb .8px,transparent 1.4px);
+  background-size:var(--mtr-star-travel) 24px;
+  animation:mtr-fast-drift 8s linear infinite,mtr-fast-twinkle 2.8s ease-in-out infinite alternate;
+}
+@keyframes mtr-fast-drift{to{background-position:var(--mtr-star-travel) 0}}
+@keyframes mtr-fast-twinkle{from{opacity:.44}to{opacity:.92}}
+@media(prefers-reduced-motion:reduce){
+  .mtr-fast-active .mtr-stars::before,.mtr-fast-active .mtr-stars::after{animation:none}
+  .mtr-fast-active .mtr-stars::after{opacity:.65}
+}

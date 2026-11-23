@@ -7,14 +7,81 @@ export function tierAt(fraction, count) { return Math.round(fraction * Math.max(
 export function thumbPosition(fraction) { return `calc(${fraction * 100}% + ${14 - 28 * fraction}px)`; }
 
 export function createView(React, createPortal) {
- const h = React.createElement, { useState, useRef, useLayoutEffect, useEffect, useMemo } = React;
+ const h = React.createElement, { useState, useRef, useLayoutEffect, useEffect, useMemo, useId } = React;
  const reset = 'M3 4v5h5 M3.6 9a9 9 0 1 1 .2 7';
  const icon = path => h('svg', {
    width: 15, height: 15, viewBox: '0 0 24 24', fill: 'none',
    stroke: 'currentColor', strokeWidth: 1.7, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true,
  }, h('path', { d: path }));
+ const lightning = (size, props) => h('svg', { width: size, height: size, viewBox: '0 0 24 24',
+   'aria-hidden': true, ...props }, h('path', { d: 'M13.5 2.5 4 13h7l-1 8.5L20 11h-7l.5-8.5Z' }));
+ function FastToggle({ fastMode, ultra, blocked, dismissTip, text }) {
+   const { enabled, label, detail, pending, onToggle } = fastMode;
+   const tipId = useId(), bolt = useRef(null), tip = useRef(null), touchPointer = useRef(false);
+   const [hovered, setHovered] = useState(false), [focused, setFocused] = useState(false);
+   const [dismissed, setDismissed] = useState(false), [touchTip, setTouchTip] = useState(false);
+   const visible = !dismissed && (hovered || focused || touchTip);
+   const unavailable = blocked || pending;
+   useLayoutEffect(() => {
+     if (!hovered && !focused && !touchTip) setDismissed(false);
+   }, [hovered, focused, touchTip]);
+   useLayoutEffect(() => {
+     if (!visible) return;
+     const b = bolt.current, p = tip.current;
+     // Keep the tooltip outside the panel's scroll clipping without leaving its DOM subtree.
+     p.showPopover?.();
+     const pos = () => {
+       const r = b.getBoundingClientRect(), w = p.offsetWidth, height = p.offsetHeight;
+       const above = r.top >= height + 6 || innerHeight - r.bottom < height + 6;
+       p.dataset.side = above ? 'above' : 'below';
+       p.style.left = Math.max(6, Math.min(innerWidth - w - 6, r.left + (r.width - w) / 2)) + 'px';
+       p.style.top = Math.max(6, Math.min(innerHeight - height - 6, above ? r.top - height : r.bottom)) + 'px';
+     };
+     pos();
+     p.style.visibility = 'visible';
+     const ro = new ResizeObserver(pos);
+     ro.observe(p); ro.observe(b.closest('.mtr-panel'));
+     window.addEventListener('resize', pos);
+     window.addEventListener('scroll', pos, true);
+     const outside = e => { if (!b.parentElement?.contains(e.target)) setTouchTip(false); };
+     document.addEventListener('pointerdown', outside, true);
+     dismissTip.current = () => { setTouchTip(false); setDismissed(true); return true; };
+     return () => {
+       dismissTip.current = null;
+       document.removeEventListener('pointerdown', outside, true);
+       ro.disconnect();
+       window.removeEventListener('resize', pos);
+       window.removeEventListener('scroll', pos, true);
+       p.style.visibility = 'hidden';
+       if (p.hidePopover && p.matches(':popover-open')) p.hidePopover();
+     };
+   }, [visible, dismissTip]);
+   return h('div', { className: 'mtr-fast-wrap',
+     onPointerEnter: e => { if (e.pointerType !== 'touch') setHovered(true); },
+     onPointerLeave: () => setHovered(false),
+   },
+     h('button', { type: 'button', className: 'mtr-icon mtr-fast' + (ultra ? ' mtr-fast-ultra' : ''), ref: bolt,
+       'aria-label': text('fast', 'Fast mode'), 'aria-pressed': !!enabled, 'aria-describedby': tipId,
+       'aria-disabled': !!unavailable, 'aria-busy': pending || undefined,
+       onFocus: e => setFocused(e.currentTarget.matches(':focus-visible')), onBlur: () => setFocused(false),
+       onPointerDown: e => { touchPointer.current = e.pointerType === 'touch'; },
+       onPointerCancel: () => { touchPointer.current = false; },
+       onClick: e => {
+         const touch = e.detail > 0 && (touchPointer.current || e.nativeEvent?.pointerType === 'touch');
+         touchPointer.current = false;
+         // Preview the tradeoff before changing modes on a device without hover.
+         if (touch && !touchTip) { setDismissed(false); setTouchTip(true); return; }
+         if (!unavailable) onToggle(!enabled);
+       },
+     }, lightning(15)),
+     h('div', { id: tipId, role: 'tooltip', className: 'mtr-fast-tip', popover: 'manual', hidden: !visible, ref: tip },
+       h('div', { className: 'mtr-fast-tip-body' },
+         h('span', null, label || text('fastSpeed', 'Faster responses')),
+         h('small', null, detail || text('fastUsage', 'More usage')))),
+   );
+ }
  // Keep per-pixel updates local to the rail, not the surrounding model menu.
- function EffortRail({ options, idx, tierLabel, label, peak, shining, blocked, slider, dragging, preview, commit }) {
+ function EffortRail({ options, idx, tierLabel, label, purple, shining, fastActive, blocked, slider, dragging, preview, commit }) {
    const gesture = useRef(null);
    const [point, setPoint] = useState(null);
    const max = Math.max(0, options.length - 1);
@@ -54,7 +121,7 @@ export function createView(React, createPortal) {
      setPoint(null); preview(i); commit(i);
    };
    const interrupted = e => { if (gesture.current?.id === e.pointerId) cancel(); };
-   return h('div', { className: 'mtr-track' + (peak ? ' ultra' : '') + (point !== null ? ' mtr-dragging' : ''),
+   return h('div', { className: 'mtr-track' + (purple ? ' ultra' : '') + (fastActive ? ' mtr-fast-active' : '') + (point !== null ? ' mtr-dragging' : ''),
      style: { '--mtr-position': thumbPosition(fraction) }, onPointerDown: down, onPointerMove: move,
      onPointerUp: up, onPointerCancel: interrupted, onLostPointerCapture: interrupted },
      h('i', { className: 'mtr-fill', style: { opacity: fraction > 0 ? 1 : 0 } }, shining && h('i', { className: 'mtr-stars' })),
@@ -74,12 +141,12 @@ export function createView(React, createPortal) {
  }
  return function TierView({
    tiers = [], activeId, modelLabel, modelId, models = [], busy, disabled,
-   onSelect, onModel, onReset, fast, error, t,
+   onSelect, onModel, onReset, onFastOpen, fastMode, error, t,
  }) {
    const text = (key, fallback) => t?.(key) || fallback;
    const [page, setPage] = useState(''), [preview, setPreview] = useState(null);
    const [pendingModel, setPendingModel] = useState(null);
-   const anchor = useRef(null), panel = useRef(null), slider = useRef(null);
+   const anchor = useRef(null), panel = useRef(null), slider = useRef(null), dismissTip = useRef(null);
    const drag = useRef(false), keyboard = useRef(false);
    const options = tiers.filter(x => x.available !== false);
    const selected = options.findIndex(x => x.id === activeId);
@@ -100,7 +167,7 @@ export function createView(React, createPortal) {
    }, [models]);
 
    const close = (focus = false) => {
-     drag.current = false; setPreview(null); setPage('');
+     drag.current = false; setPreview(null); setPendingModel(null); setPage('');
      if (focus) anchor.current?.focus();
    };
 
@@ -123,7 +190,11 @@ export function createView(React, createPortal) {
      window.addEventListener('resize', pos);
      window.addEventListener('scroll', pos, true);
      const outside = e => { if (!a.contains(e.target) && !p.contains(e.target)) close(); };
-     const key = e => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(true); } };
+     const key = e => {
+       if (e.key !== 'Escape') return;
+       e.preventDefault(); e.stopPropagation();
+       if (!dismissTip.current?.()) close(true);
+     };
      document.addEventListener('pointerdown', outside, true);
      document.addEventListener('focusin', outside, true);
      document.addEventListener('keydown', key, true);
@@ -144,9 +215,10 @@ export function createView(React, createPortal) {
      if (!p) return;
      const target = page === 'model'
        ? (p.querySelector('[aria-checked="true"]:enabled') || p.querySelector('.mtr-option:enabled'))
-       : slider.current;
+       : (p.querySelector('.mtr-fast[aria-disabled="false"]') || slider.current || p.querySelector('.mtr-fast'));
      target?.focus({ preventScroll: true });
    }, [page, open]);
+   useEffect(() => { if (page === 'effort') onFastOpen?.(); }, [page, onFastOpen]);
 
    // A settled switch returns to the effort pane; a rejection keeps the list so the choice can be retried.
    useEffect(() => {
@@ -170,25 +242,30 @@ export function createView(React, createPortal) {
    }, child);
    const ultra = /ultra/i.test(current?.id || '');
    const peak = ultra || (!!current && options.length > 1 && idx === options.length - 1);
-   const shining = fast || peak;
+   // Fast does not select an effort. For models without Fast keep the legacy top-stop effect.
+   const fastActive = !!fastMode?.enabled;
+   const purple = ultra || (!fastMode && peak);
+   const shining = fastActive || peak;
    const subtitle = ultra ? text('higherUsage', 'Consumes usage limits faster') : model;
    const trigger = button(
-     `${model} ${tierLabel}`,
-     e => { keyboard.current = e.detail === 0; if (page) close(true); else setPage(options.length ? 'effort' : 'model'); },
+     `${model} ${tierLabel}${fastActive ? ` · ${text('fast', 'Fast mode')}` : ''}`,
+     e => { keyboard.current = e.detail === 0; if (page) close(true); else setPage(options.length || fastMode ? 'effort' : 'model'); },
      h(React.Fragment, null,
        h('i', { className: 'mtr-mini', 'aria-hidden': true }, icon('M3 7h7m4 0h7M3 17h11m4 0h3M10 4v6m6 4v6')),
        h('strong', null, model),
-       explicit && h('span', null, tierLabel)),
+       explicit && h('span', null, tierLabel),
+       fastMode && lightning(11, { className: 'mtr-trigger-fast', fill: ultra ? '#8b5cf6' : 'var(--mtr-blue)',
+         style: { flex: '0 0 11px', visibility: fastActive ? 'visible' : 'hidden' } })),
      'mtr-trigger',
      { 'aria-expanded': !!page, 'aria-haspopup': 'dialog', disabled: !!disabled, ref: anchor },
    );
    const track = h(EffortRail, {
      key: JSON.stringify([modelId, ...options.map(tier => tier.id)]),
-     options, idx, tierLabel, label: text('selectEffort', 'Select effort'), peak, shining, blocked,
+     options, idx, tierLabel, label: text('selectEffort', 'Select effort'), purple, shining, fastActive, blocked,
      slider, dragging: drag, preview: setPreview, commit,
    });
    const header = h('div', { className: 'mtr-head' },
-     h('span', { className: 'mtr-spacer', 'aria-hidden': true }),
+     fastMode ? h(FastToggle, { fastMode, ultra, blocked, dismissTip, text }) : h('span', { className: 'mtr-spacer', 'aria-hidden': true }),
      button(text('selectModel', 'Select model'), () => setPage('model'),
        h(React.Fragment, null,
          h('b', { className: ultra ? 'mtr-ultra-label' : '' }, tierLabel),

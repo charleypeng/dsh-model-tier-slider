@@ -47,14 +47,81 @@ function tierAt(fraction, count) { return Math.round(fraction * Math.max(0, coun
 function thumbPosition(fraction) { return `calc(${fraction * 100}% + ${14 - 28 * fraction}px)`; }
 
 function createView(React, createPortal) {
- const h = React.createElement, { useState, useRef, useLayoutEffect, useEffect, useMemo } = React;
+ const h = React.createElement, { useState, useRef, useLayoutEffect, useEffect, useMemo, useId } = React;
  const reset = 'M3 4v5h5 M3.6 9a9 9 0 1 1 .2 7';
  const icon = path => h('svg', {
    width: 15, height: 15, viewBox: '0 0 24 24', fill: 'none',
    stroke: 'currentColor', strokeWidth: 1.7, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true,
  }, h('path', { d: path }));
+ const lightning = (size, props) => h('svg', { width: size, height: size, viewBox: '0 0 24 24',
+   'aria-hidden': true, ...props }, h('path', { d: 'M13.5 2.5 4 13h7l-1 8.5L20 11h-7l.5-8.5Z' }));
+ function FastToggle({ fastMode, ultra, blocked, dismissTip, text }) {
+   const { enabled, label, detail, pending, onToggle } = fastMode;
+   const tipId = useId(), bolt = useRef(null), tip = useRef(null), touchPointer = useRef(false);
+   const [hovered, setHovered] = useState(false), [focused, setFocused] = useState(false);
+   const [dismissed, setDismissed] = useState(false), [touchTip, setTouchTip] = useState(false);
+   const visible = !dismissed && (hovered || focused || touchTip);
+   const unavailable = blocked || pending;
+   useLayoutEffect(() => {
+     if (!hovered && !focused && !touchTip) setDismissed(false);
+   }, [hovered, focused, touchTip]);
+   useLayoutEffect(() => {
+     if (!visible) return;
+     const b = bolt.current, p = tip.current;
+     // Keep the tooltip outside the panel's scroll clipping without leaving its DOM subtree.
+     p.showPopover?.();
+     const pos = () => {
+       const r = b.getBoundingClientRect(), w = p.offsetWidth, height = p.offsetHeight;
+       const above = r.top >= height + 6 || innerHeight - r.bottom < height + 6;
+       p.dataset.side = above ? 'above' : 'below';
+       p.style.left = Math.max(6, Math.min(innerWidth - w - 6, r.left + (r.width - w) / 2)) + 'px';
+       p.style.top = Math.max(6, Math.min(innerHeight - height - 6, above ? r.top - height : r.bottom)) + 'px';
+     };
+     pos();
+     p.style.visibility = 'visible';
+     const ro = new ResizeObserver(pos);
+     ro.observe(p); ro.observe(b.closest('.mtr-panel'));
+     window.addEventListener('resize', pos);
+     window.addEventListener('scroll', pos, true);
+     const outside = e => { if (!b.parentElement?.contains(e.target)) setTouchTip(false); };
+     document.addEventListener('pointerdown', outside, true);
+     dismissTip.current = () => { setTouchTip(false); setDismissed(true); return true; };
+     return () => {
+       dismissTip.current = null;
+       document.removeEventListener('pointerdown', outside, true);
+       ro.disconnect();
+       window.removeEventListener('resize', pos);
+       window.removeEventListener('scroll', pos, true);
+       p.style.visibility = 'hidden';
+       if (p.hidePopover && p.matches(':popover-open')) p.hidePopover();
+     };
+   }, [visible, dismissTip]);
+   return h('div', { className: 'mtr-fast-wrap',
+     onPointerEnter: e => { if (e.pointerType !== 'touch') setHovered(true); },
+     onPointerLeave: () => setHovered(false),
+   },
+     h('button', { type: 'button', className: 'mtr-icon mtr-fast' + (ultra ? ' mtr-fast-ultra' : ''), ref: bolt,
+       'aria-label': text('fast', 'Fast mode'), 'aria-pressed': !!enabled, 'aria-describedby': tipId,
+       'aria-disabled': !!unavailable, 'aria-busy': pending || undefined,
+       onFocus: e => setFocused(e.currentTarget.matches(':focus-visible')), onBlur: () => setFocused(false),
+       onPointerDown: e => { touchPointer.current = e.pointerType === 'touch'; },
+       onPointerCancel: () => { touchPointer.current = false; },
+       onClick: e => {
+         const touch = e.detail > 0 && (touchPointer.current || e.nativeEvent?.pointerType === 'touch');
+         touchPointer.current = false;
+         // Preview the tradeoff before changing modes on a device without hover.
+         if (touch && !touchTip) { setDismissed(false); setTouchTip(true); return; }
+         if (!unavailable) onToggle(!enabled);
+       },
+     }, lightning(15)),
+     h('div', { id: tipId, role: 'tooltip', className: 'mtr-fast-tip', popover: 'manual', hidden: !visible, ref: tip },
+       h('div', { className: 'mtr-fast-tip-body' },
+         h('span', null, label || text('fastSpeed', 'Faster responses')),
+         h('small', null, detail || text('fastUsage', 'More usage')))),
+   );
+ }
  // Keep per-pixel updates local to the rail, not the surrounding model menu.
- function EffortRail({ options, idx, tierLabel, label, peak, shining, blocked, slider, dragging, preview, commit }) {
+ function EffortRail({ options, idx, tierLabel, label, purple, shining, fastActive, blocked, slider, dragging, preview, commit }) {
    const gesture = useRef(null);
    const [point, setPoint] = useState(null);
    const max = Math.max(0, options.length - 1);
@@ -94,7 +161,7 @@ function createView(React, createPortal) {
      setPoint(null); preview(i); commit(i);
    };
    const interrupted = e => { if (gesture.current?.id === e.pointerId) cancel(); };
-   return h('div', { className: 'mtr-track' + (peak ? ' ultra' : '') + (point !== null ? ' mtr-dragging' : ''),
+   return h('div', { className: 'mtr-track' + (purple ? ' ultra' : '') + (fastActive ? ' mtr-fast-active' : '') + (point !== null ? ' mtr-dragging' : ''),
      style: { '--mtr-position': thumbPosition(fraction) }, onPointerDown: down, onPointerMove: move,
      onPointerUp: up, onPointerCancel: interrupted, onLostPointerCapture: interrupted },
      h('i', { className: 'mtr-fill', style: { opacity: fraction > 0 ? 1 : 0 } }, shining && h('i', { className: 'mtr-stars' })),
@@ -114,12 +181,12 @@ function createView(React, createPortal) {
  }
  return function TierView({
    tiers = [], activeId, modelLabel, modelId, models = [], busy, disabled,
-   onSelect, onModel, onReset, fast, error, t,
+   onSelect, onModel, onReset, onFastOpen, fastMode, error, t,
  }) {
    const text = (key, fallback) => t?.(key) || fallback;
    const [page, setPage] = useState(''), [preview, setPreview] = useState(null);
    const [pendingModel, setPendingModel] = useState(null);
-   const anchor = useRef(null), panel = useRef(null), slider = useRef(null);
+   const anchor = useRef(null), panel = useRef(null), slider = useRef(null), dismissTip = useRef(null);
    const drag = useRef(false), keyboard = useRef(false);
    const options = tiers.filter(x => x.available !== false);
    const selected = options.findIndex(x => x.id === activeId);
@@ -140,7 +207,7 @@ function createView(React, createPortal) {
    }, [models]);
 
    const close = (focus = false) => {
-     drag.current = false; setPreview(null); setPage('');
+     drag.current = false; setPreview(null); setPendingModel(null); setPage('');
      if (focus) anchor.current?.focus();
    };
 
@@ -163,7 +230,11 @@ function createView(React, createPortal) {
      window.addEventListener('resize', pos);
      window.addEventListener('scroll', pos, true);
      const outside = e => { if (!a.contains(e.target) && !p.contains(e.target)) close(); };
-     const key = e => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(true); } };
+     const key = e => {
+       if (e.key !== 'Escape') return;
+       e.preventDefault(); e.stopPropagation();
+       if (!dismissTip.current?.()) close(true);
+     };
      document.addEventListener('pointerdown', outside, true);
      document.addEventListener('focusin', outside, true);
      document.addEventListener('keydown', key, true);
@@ -184,9 +255,10 @@ function createView(React, createPortal) {
      if (!p) return;
      const target = page === 'model'
        ? (p.querySelector('[aria-checked="true"]:enabled') || p.querySelector('.mtr-option:enabled'))
-       : slider.current;
+       : (p.querySelector('.mtr-fast[aria-disabled="false"]') || slider.current || p.querySelector('.mtr-fast'));
      target?.focus({ preventScroll: true });
    }, [page, open]);
+   useEffect(() => { if (page === 'effort') onFastOpen?.(); }, [page, onFastOpen]);
 
    // A settled switch returns to the effort pane; a rejection keeps the list so the choice can be retried.
    useEffect(() => {
@@ -210,25 +282,30 @@ function createView(React, createPortal) {
    }, child);
    const ultra = /ultra/i.test(current?.id || '');
    const peak = ultra || (!!current && options.length > 1 && idx === options.length - 1);
-   const shining = fast || peak;
+   // Fast does not select an effort. For models without Fast keep the legacy top-stop effect.
+   const fastActive = !!fastMode?.enabled;
+   const purple = ultra || (!fastMode && peak);
+   const shining = fastActive || peak;
    const subtitle = ultra ? text('higherUsage', 'Consumes usage limits faster') : model;
    const trigger = button(
-     `${model} ${tierLabel}`,
-     e => { keyboard.current = e.detail === 0; if (page) close(true); else setPage(options.length ? 'effort' : 'model'); },
+     `${model} ${tierLabel}${fastActive ? ` · ${text('fast', 'Fast mode')}` : ''}`,
+     e => { keyboard.current = e.detail === 0; if (page) close(true); else setPage(options.length || fastMode ? 'effort' : 'model'); },
      h(React.Fragment, null,
        h('i', { className: 'mtr-mini', 'aria-hidden': true }, icon('M3 7h7m4 0h7M3 17h11m4 0h3M10 4v6m6 4v6')),
        h('strong', null, model),
-       explicit && h('span', null, tierLabel)),
+       explicit && h('span', null, tierLabel),
+       fastMode && lightning(11, { className: 'mtr-trigger-fast', fill: ultra ? '#8b5cf6' : 'var(--mtr-blue)',
+         style: { flex: '0 0 11px', visibility: fastActive ? 'visible' : 'hidden' } })),
      'mtr-trigger',
      { 'aria-expanded': !!page, 'aria-haspopup': 'dialog', disabled: !!disabled, ref: anchor },
    );
    const track = h(EffortRail, {
      key: JSON.stringify([modelId, ...options.map(tier => tier.id)]),
-     options, idx, tierLabel, label: text('selectEffort', 'Select effort'), peak, shining, blocked,
+     options, idx, tierLabel, label: text('selectEffort', 'Select effort'), purple, shining, fastActive, blocked,
      slider, dragging: drag, preview: setPreview, commit,
    });
    const header = h('div', { className: 'mtr-head' },
-     h('span', { className: 'mtr-spacer', 'aria-hidden': true }),
+     fastMode ? h(FastToggle, { fastMode, ultra, blocked, dismissTip, text }) : h('span', { className: 'mtr-spacer', 'aria-hidden': true }),
      button(text('selectModel', 'Select model'), () => setPage('model'),
        h(React.Fragment, null,
          h('b', { className: ultra ? 'mtr-ultra-label' : '' }, tierLabel),
@@ -266,11 +343,81 @@ function createView(React, createPortal) {
 }
 
 // This file is inserted into the lazy loader factory by build.mjs. No private UI imports.
+async function callCodexFast(endpoint, payload, signal, transport = fetch) {
+  const response = await transport(`/codex-api/${endpoint}`, {
+    method: 'POST', credentials: 'same-origin', signal,
+    headers: { 'content-type': 'application/json' }, body: JSON.stringify({ payload }),
+  });
+  if (!response.ok) throw new Error('Codex Fast request failed');
+  const reply = await response.json();
+  if (reply?.ok !== true) throw new Error(reply?.error?.message || 'Codex Fast request failed');
+  const value = reply.value;
+  if (value?.available !== true || value.tier !== 'priority' || typeof value.enabled !== 'boolean') return null;
+  return { enabled: value.enabled, tier: value.tier,
+    label: typeof value.label === 'string' ? value.label : undefined,
+    detail: typeof value.detail === 'string' ? value.detail : undefined };
+}
+
+function createFastHook(React) {
+  const { useCallback, useEffect, useMemo, useRef, useState } = React;
+  return function useFast(sessionId, row) {
+    const model = row?.provider === 'openai-codex' ? row.model : null;
+    const target = useMemo(() => typeof sessionId === 'string' && model
+      ? {sessionId, model} : null, [sessionId, model]);
+    const [view, setView] = useState(null);
+    const active = useRef(null);
+    const refresh = useCallback(() => {
+      const current = active.current;
+      if (!target || current?.target !== target || current.write) return;
+      current.read?.abort();
+      const read = new AbortController();
+      current.read = read;
+      callCodexFast('fastStatus', target, read.signal).then(value => {
+        if (active.current === current && !read.signal.aborted) setView({target, value});
+      }, () => {
+        if (active.current === current && !read.signal.aborted) {
+          // A transient status failure is not evidence that Fast was switched off.
+          setView(previous => previous?.target === target && previous.value
+            ? {...previous, error:true} : previous);
+        }
+      });
+    }, [target]);
+    useEffect(() => {
+      if (!target) return;
+      const current = {target};
+      active.current = current;
+      refresh();
+      window.addEventListener('focus', refresh);
+      return () => {
+        window.removeEventListener('focus', refresh);
+        active.current = null;
+        current.read?.abort();
+      };
+    }, [target, refresh]);
+    const value = view?.target === target ? view?.value : null;
+    const onToggle = async enabled => {
+      const current = active.current;
+      if (!target || current?.target !== target || current.write || !value || typeof enabled !== 'boolean') return;
+      current.read?.abort();
+      current.write = true;
+      setView({target, value, pending:true});
+      try {
+        const next = await callCodexFast('setFast', {...target, enabled});
+        if (active.current === current) setView({target, value:next, error:!next});
+      } catch {
+        if (active.current === current) setView({target, value, error:true});
+      } finally { current.write = false; }
+    };
+    return { mode: value ? {...value, pending:!!view.pending, onToggle} : null,
+      refresh, error: view?.target === target && view?.error };
+  };
+}
 function makePlugin(React, createPortal, css, dictionaries) {
   const h = React.createElement;
   const View = createView(React, createPortal);
   const ns = 'dsh-model-tier-slider';
-  function Seat({source,locked,t}) {
+  const useFast = createFastHook(React);
+  function Seat({source,sessionId,locked,t}) {
     const read = React.useCallback(() => source.store.getSnapshot(), [source]);
     const subscribe = React.useCallback(fn => source.store.subscribe(fn), [source]);
     const snapshot = React.useSyncExternalStore(subscribe, read);
@@ -283,6 +430,7 @@ function makePlugin(React, createPortal, css, dictionaries) {
       return () => { mounted.current = false; };
     }, [source]);
     const projected = project(snapshot);
+    const fast = useFast(sessionId, projected.row);
     const submit = async (action, id) => {
       if (!mounted.current || locked || inflight.current) return false;
       const selection = selectionFor(read(), action, id, projected.modelId);
@@ -302,7 +450,8 @@ function makePlugin(React, createPortal, css, dictionaries) {
       ...projected, modelLabel: projected.modelLabel || t('selectModel'),
       busy: Boolean(snapshot.pending) || snapshot.status === 'selecting',
       disabled: Boolean(locked) || snapshot.status === 'loading',
-      error: error || snapshot.error || snapshot.failures.map(f => `${f.name}: ${f.message}`).join('; '),
+      fastMode: fast.mode, onFastOpen: fast.refresh,
+      error: (fast.error && t('fastError')) || error || snapshot.error || snapshot.failures.map(f => `${f.name}: ${f.message}`).join('; '),
       onSelect: id => submit('effort',id), onModel: id => submit('model',id),
       onReset: projected.row?.reasoning ? () => submit('reset') : undefined,
       onRetry: () => {setError(null); return source.load().catch(e => { if(mounted.current) setError(String(e?.message || e)); });},
@@ -319,5 +468,5 @@ function makePlugin(React, createPortal, css, dictionaries) {
   }};
 }
 
-return makePlugin(require('react'),require('react-dom').createPortal,".mtr-root,.mtr-panel{font:13px/1.3 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:var(--dsw-alias-label-primary);--mtr-blue:var(--dsw-static-blue-500,#3b82f6);--mtr-muted:var(--dsw-alias-label-secondary);--mtr-surface:var(--dsw-alias-bg-layer-1);--mtr-hover:color-mix(in srgb,currentColor 6%,transparent)}\n.mtr-root{display:inline-flex;min-width:0;align-items:center}.mtr-root button,.mtr-panel button{font:inherit;letter-spacing:normal;text-transform:none;color:inherit;cursor:pointer;border:0;background:none;box-shadow:none;margin:0;min-height:0}.mtr-root button:focus-visible,.mtr-panel button:focus-visible,.mtr-track:has(input:focus-visible){outline:2px solid var(--mtr-blue);outline-offset:2px}\n.mtr-root .mtr-trigger{display:inline-flex;align-items:center;justify-content:center;gap:4px;height:28px;max-width:min(220px,34vw);padding:0 9px;border-radius:18px;white-space:nowrap}.mtr-trigger strong,.mtr-trigger span,.mtr-heading small,.mtr-option span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.mtr-trigger strong{font-weight:560}.mtr-trigger span,.mtr-heading small,.mtr-caption,.mtr-panel .mtr-group-name{color:var(--mtr-muted)}.mtr-trigger:hover,.mtr-trigger[aria-expanded=true],.mtr-panel button:enabled:hover{background:var(--mtr-hover)}\n.mtr-panel{position:fixed;inset:auto;margin:0;box-sizing:border-box;visibility:hidden;width:min(255px,calc(100vw - 12px));max-height:calc(100dvh - 12px);overflow:auto;padding:10px 12px 12px;border:1px solid var(--dsw-alias-border-l1);border-radius:16px;background:var(--mtr-surface);box-shadow:0 12px 30px -12px color-mix(in srgb,var(--dsw-alias-label-primary) 30%,transparent),0 2px 6px color-mix(in srgb,var(--dsw-alias-label-primary) 6%,transparent);z-index:1000}.mtr-head{display:grid;grid-template-columns:24px minmax(0,1fr) 24px;align-items:start;gap:2px}.mtr-panel .mtr-icon{width:24px;height:24px;padding:4px;display:grid;place-items:center;color:var(--mtr-muted);border-radius:8px}.mtr-panel button:disabled{cursor:default;opacity:.5}.mtr-panel .mtr-heading{display:grid;min-width:0;max-width:100%;justify-self:center;gap:2px;padding:3px 8px;border-radius:8px;text-align:center}.mtr-heading b{font-size:14px;font-weight:560}.mtr-heading b.mtr-ultra-label{color:#8b5cf6}.mtr-heading small{font-size:12px}\n.mtr-track{position:relative;height:24px;margin-top:11px;border-radius:99px;background:color-mix(in srgb,var(--mtr-blue) 12%,var(--mtr-surface))}.mtr-fill{position:absolute;left:0;top:0;bottom:0;min-width:0;overflow:hidden;border-radius:99px;background:var(--mtr-blue);pointer-events:none;z-index:1}.mtr-track.ultra .mtr-fill{background:linear-gradient(100deg,#2563eb,#4f46e5 38%,#a855f7 72%,#7c3aed);background-size:150% 100%;animation:mtr-flow 3s ease-in-out infinite alternate}.mtr-stars{position:absolute;inset:0;width:100%;height:100%;background:radial-gradient(circle at 9px 11px,#fff9 .9px,transparent 1.3px) 0 0/37px 18px,radial-gradient(circle at 22px 5px,#fff6 1px,transparent 1.5px) 0 0/53px 21px;animation:mtr-drift 5s linear infinite}.mtr-ticks{position:absolute;inset:0 14px;display:flex;align-items:center;justify-content:space-between;pointer-events:none;z-index:2}.mtr-ticks i{width:2px;height:2px;border-radius:50%;background:var(--dsw-alias-label-secondary)}.mtr-thumb{position:absolute;top:50%;transform:translate(-50%,-50%);width:28px;height:28px;box-sizing:border-box;border-radius:50%;background:var(--mtr-surface);border:1px solid color-mix(in srgb,var(--dsw-alias-label-primary) 12%,transparent);box-shadow:0 1px 3px color-mix(in srgb,var(--dsw-alias-label-primary) 18%,transparent);pointer-events:none;z-index:3}.mtr-track input{position:absolute;left:0;top:-2px;width:100%;height:28px;appearance:none;background:none;opacity:0;cursor:pointer;margin:0;padding:0;touch-action:none;z-index:4}.mtr-track input::-webkit-slider-runnable-track{height:28px;background:none}.mtr-track input::-webkit-slider-thumb{appearance:none;width:28px;height:28px;margin:0}.mtr-track input::-moz-range-track{height:28px;background:none}.mtr-track input::-moz-range-thumb{width:28px;height:28px;border:0}\n/* Both edges use the same target and easing. Never ease toward a moving pointer. */\n.mtr-track{touch-action:none;user-select:none;cursor:pointer;--mtr-snap:145ms cubic-bezier(.22,.75,.25,1)}\n.mtr-track .mtr-fill{width:var(--mtr-position);transition:width var(--mtr-snap),opacity var(--mtr-snap)}\n.mtr-track .mtr-thumb{left:var(--mtr-position);transition:left var(--mtr-snap)}\n.mtr-track.mtr-dragging .mtr-fill,.mtr-track.mtr-dragging .mtr-thumb{transition:none}\n.mtr-track input{pointer-events:none}\n@media(prefers-reduced-motion:reduce){.mtr-track{--mtr-snap:0s linear}}\n.mtr-list{max-height:min(300px,46vh);overflow:auto}.mtr-group+.mtr-group{border-top:1px solid var(--dsw-alias-border-l1);margin-top:3px;padding-top:3px}.mtr-panel .mtr-group-name{font-size:11px;font-weight:560;padding:6px 5px 2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.mtr-caption{font-size:12px;padding:4px 3px}.mtr-panel .mtr-option{display:flex;width:100%;justify-content:space-between;align-items:center;gap:8px;padding:7px 5px;border-radius:7px;text-align:left}.mtr-error{color:var(--dsw-alias-state-error-primary);font-size:12px;margin-top:8px;overflow-wrap:anywhere}@keyframes mtr-flow{to{background-position:100% 50%}}@keyframes mtr-drift{to{background-position:37px 0,53px 0}}@media(prefers-reduced-motion:reduce){.mtr-track.ultra .mtr-fill,.mtr-stars{animation:none}}.mtr-trigger>.mtr-mini{display:var(--dsh-composer-model-icon-display,none);line-height:0}.mtr-trigger>strong,.mtr-trigger>span{display:var(--dsh-composer-model-text-display,inline)}\n",{"en":{"selectEffort":"Reasoning effort","selectModel":"Select model","fast":"Fast mode","reset":"Reset to model default","unsupported":"This model does not offer selectable reasoning levels.","higherUsage":"Higher usage","defaultTier":"Model default","requiresFast":"Requires fast mode","retry":"Retry","unavailable":"Not available"},"zh":{"selectEffort":"推理档位","selectModel":"选择模型","fast":"快速模式","reset":"恢复模型默认档位","unsupported":"当前模型未提供可选推理档位。","higherUsage":"用量较高","defaultTier":"模型默认","requiresFast":"需要快速模式","retry":"重试","unavailable":"不可用"}});
+return makePlugin(require('react'),require('react-dom').createPortal,".mtr-root,.mtr-panel{font:13px/1.3 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:var(--dsw-alias-label-primary);--mtr-blue:var(--dsw-static-blue-500,#3b82f6);--mtr-muted:var(--dsw-alias-label-secondary);--mtr-surface:var(--dsw-alias-bg-layer-1);--mtr-hover:color-mix(in srgb,currentColor 6%,transparent)}\n.mtr-root{display:inline-flex;min-width:0;align-items:center}.mtr-root button,.mtr-panel button{font:inherit;letter-spacing:normal;text-transform:none;color:inherit;cursor:pointer;border:0;background:none;box-shadow:none;margin:0;min-height:0}.mtr-root button:focus-visible,.mtr-panel button:focus-visible,.mtr-track:has(input:focus-visible){outline:2px solid var(--mtr-blue);outline-offset:2px}\n.mtr-root .mtr-trigger{display:inline-flex;align-items:center;justify-content:center;gap:4px;height:28px;max-width:min(220px,34vw);padding:0 9px;border-radius:18px;white-space:nowrap}.mtr-trigger strong,.mtr-trigger span,.mtr-heading small,.mtr-option span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.mtr-trigger strong{font-weight:560}.mtr-trigger span,.mtr-heading small,.mtr-caption,.mtr-panel .mtr-group-name{color:var(--mtr-muted)}.mtr-trigger:hover,.mtr-trigger[aria-expanded=true],.mtr-panel button:enabled:hover{background:var(--mtr-hover)}\n.mtr-panel{position:fixed;inset:auto;margin:0;box-sizing:border-box;visibility:hidden;width:min(255px,calc(100vw - 12px));max-height:calc(100dvh - 12px);overflow:auto;padding:10px 12px 12px;border:1px solid var(--dsw-alias-border-l1);border-radius:16px;background:var(--mtr-surface);box-shadow:0 12px 30px -12px color-mix(in srgb,var(--dsw-alias-label-primary) 30%,transparent),0 2px 6px color-mix(in srgb,var(--dsw-alias-label-primary) 6%,transparent);z-index:1000}.mtr-head{display:grid;grid-template-columns:24px minmax(0,1fr) 24px;align-items:start;gap:2px}.mtr-panel .mtr-icon{width:24px;height:24px;padding:4px;display:grid;place-items:center;color:var(--mtr-muted);border-radius:8px}.mtr-panel button:disabled{cursor:default;opacity:.5}.mtr-panel .mtr-heading{display:grid;min-width:0;max-width:100%;justify-self:center;gap:2px;padding:3px 8px;border-radius:8px;text-align:center}.mtr-heading b{font-size:14px;font-weight:560}.mtr-heading b.mtr-ultra-label{color:#8b5cf6}.mtr-heading small{font-size:12px}\n.mtr-track{position:relative;height:24px;margin-top:11px;border-radius:99px;background:color-mix(in srgb,var(--mtr-blue) 12%,var(--mtr-surface))}.mtr-fill{position:absolute;left:0;top:0;bottom:0;min-width:0;overflow:hidden;border-radius:99px;background:var(--mtr-blue);pointer-events:none;z-index:1}.mtr-track.ultra .mtr-fill{background:linear-gradient(100deg,#2563eb,#4f46e5 38%,#a855f7 72%,#7c3aed);background-size:150% 100%;animation:mtr-flow 3s ease-in-out infinite alternate}.mtr-stars{position:absolute;inset:0;width:100%;height:100%;background:radial-gradient(circle at 9px 11px,#fff9 .9px,transparent 1.3px) 0 0/37px 18px,radial-gradient(circle at 22px 5px,#fff6 1px,transparent 1.5px) 0 0/53px 21px;animation:mtr-drift 5s linear infinite}.mtr-ticks{position:absolute;inset:0 14px;display:flex;align-items:center;justify-content:space-between;pointer-events:none;z-index:2}.mtr-ticks i{width:2px;height:2px;border-radius:50%;background:var(--dsw-alias-label-secondary)}.mtr-thumb{position:absolute;top:50%;transform:translate(-50%,-50%);width:28px;height:28px;box-sizing:border-box;border-radius:50%;background:var(--mtr-surface);border:1px solid color-mix(in srgb,var(--dsw-alias-label-primary) 12%,transparent);box-shadow:0 1px 3px color-mix(in srgb,var(--dsw-alias-label-primary) 18%,transparent);pointer-events:none;z-index:3}.mtr-track input{position:absolute;left:0;top:-2px;width:100%;height:28px;appearance:none;background:none;opacity:0;cursor:pointer;margin:0;padding:0;touch-action:none;z-index:4}.mtr-track input::-webkit-slider-runnable-track{height:28px;background:none}.mtr-track input::-webkit-slider-thumb{appearance:none;width:28px;height:28px;margin:0}.mtr-track input::-moz-range-track{height:28px;background:none}.mtr-track input::-moz-range-thumb{width:28px;height:28px;border:0}\n/* Both edges use the same target and easing. Never ease toward a moving pointer. */\n.mtr-track{touch-action:none;user-select:none;cursor:pointer;--mtr-snap:145ms cubic-bezier(.22,.75,.25,1)}\n.mtr-track .mtr-fill{width:var(--mtr-position);transition:width var(--mtr-snap),opacity var(--mtr-snap)}\n.mtr-track .mtr-thumb{left:var(--mtr-position);transition:left var(--mtr-snap)}\n.mtr-track.mtr-dragging .mtr-fill,.mtr-track.mtr-dragging .mtr-thumb{transition:none}\n.mtr-track input{pointer-events:none}\n@media(prefers-reduced-motion:reduce){.mtr-track{--mtr-snap:0s linear}}\n.mtr-list{max-height:min(300px,46vh);overflow:auto}.mtr-group+.mtr-group{border-top:1px solid var(--dsw-alias-border-l1);margin-top:3px;padding-top:3px}.mtr-panel .mtr-group-name{font-size:11px;font-weight:560;padding:6px 5px 2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.mtr-caption{font-size:12px;padding:4px 3px}.mtr-panel .mtr-option{display:flex;width:100%;justify-content:space-between;align-items:center;gap:8px;padding:7px 5px;border-radius:7px;text-align:left}.mtr-error{color:var(--dsw-alias-state-error-primary);font-size:12px;margin-top:8px;overflow-wrap:anywhere}@keyframes mtr-flow{to{background-position:100% 50%}}@keyframes mtr-drift{to{background-position:37px 0,53px 0}}@media(prefers-reduced-motion:reduce){.mtr-track.ultra .mtr-fill,.mtr-stars{animation:none}}.mtr-trigger>.mtr-mini{display:var(--dsh-composer-model-icon-display,none);line-height:0}.mtr-trigger>strong,.mtr-trigger>span{display:var(--dsh-composer-model-text-display,inline)}\n\n.mtr-fast-wrap{justify-self:start}\n.mtr-fast svg{fill:none;stroke:currentColor;stroke-width:1.7;stroke-linejoin:round}\n.mtr-panel .mtr-fast[aria-pressed=true]{color:var(--mtr-blue)}\n.mtr-panel .mtr-fast.mtr-fast-ultra[aria-pressed=true]{color:#8b5cf6}\n.mtr-fast[aria-pressed=true] svg{fill:currentColor}\n.mtr-panel .mtr-fast[aria-disabled=true]{cursor:default}\n.mtr-panel .mtr-fast[aria-busy=true] svg{opacity:.55}\n\n.mtr-fast-tip{\n  position:fixed;inset:auto;z-index:1;box-sizing:border-box;margin:0;padding:0 0 5px;border:0;\n  width:max-content;max-width:min(220px,calc(100vw - 12px));overflow:visible;\n  background:none;color:#fafafa;visibility:hidden;\n}\n.mtr-fast-tip[hidden]{display:none}\n.mtr-fast-tip[data-side=below]{padding:5px 0 0}\n.mtr-fast-tip-body{\n  display:grid;gap:2px;padding:6px 10px;border-radius:10px;overflow-wrap:anywhere;\n  background:#18191c;box-shadow:0 4px 12px #0003;text-align:center;font-size:12px;\n}\n.mtr-fast-tip-body small{font-size:inherit;color:#c4c7cc}\n\n/* Two independently drifting fields, cropped by the same fill edge as the thumb. */\n.mtr-fast-active .mtr-stars{background:none;animation:none}\n.mtr-fast-active .mtr-stars::before,.mtr-fast-active .mtr-stars::after{content:'';position:absolute;inset:0}\n.mtr-fast-active .mtr-stars::before{\n  --mtr-star-travel:61px;\n  background:\n    radial-gradient(circle at 7px 8px,#fffd .7px,transparent 1.25px),\n    radial-gradient(circle at 26px 17px,#fff9 .6px,transparent 1.1px),\n    radial-gradient(circle at 46px 11px,#fffb .8px,transparent 1.4px);\n  background-size:var(--mtr-star-travel) 24px;\n  animation:mtr-fast-drift 4.8s linear infinite;\n}\n.mtr-fast-active .mtr-stars::after{\n  --mtr-star-travel:83px;\n  background:\n    radial-gradient(circle at 14px 15px,#fff7 .6px,transparent 1.2px),\n    radial-gradient(circle at 35px 6px,#fff9 .7px,transparent 1.2px),\n    radial-gradient(circle at 65px 17px,#fffb .8px,transparent 1.4px);\n  background-size:var(--mtr-star-travel) 24px;\n  animation:mtr-fast-drift 8s linear infinite,mtr-fast-twinkle 2.8s ease-in-out infinite alternate;\n}\n@keyframes mtr-fast-drift{to{background-position:var(--mtr-star-travel) 0}}\n@keyframes mtr-fast-twinkle{from{opacity:.44}to{opacity:.92}}\n@media(prefers-reduced-motion:reduce){\n  .mtr-fast-active .mtr-stars::before,.mtr-fast-active .mtr-stars::after{animation:none}\n  .mtr-fast-active .mtr-stars::after{opacity:.65}\n}\n",{"en":{"selectEffort":"Reasoning effort","selectModel":"Select model","fast":"Fast mode","fastSpeed":"Faster responses","fastUsage":"More usage","fastError":"Couldn't change Codex Fast mode. Try reopening the panel.","reset":"Reset to model default","unsupported":"This model does not offer selectable reasoning levels.","higherUsage":"Higher usage","defaultTier":"Model default","requiresFast":"Requires fast mode","retry":"Retry","unavailable":"Not available"},"zh":{"selectEffort":"推理档位","selectModel":"选择模型","fast":"快速模式","fastSpeed":"响应更快","fastUsage":"消耗更多用量","fastError":"无法切换 Codex 快速模式。请重新打开面板后重试。","reset":"恢复模型默认档位","unsupported":"当前模型未提供可选推理档位。","higherUsage":"用量较高","defaultTier":"模型默认","requiresFast":"需要快速模式","retry":"重试","unavailable":"不可用"}});
 }});

@@ -1,6 +1,26 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {project,selectionFor} from './controller.js';
+import {callCodexFast} from './plugin.js';
+
+test('Fast uses the same-origin bridge and the exact session/model pair', async () => {
+  const signal = new AbortController().signal;
+  const payload = {sessionId:'s-1', model:'model-alpha', enabled:true};
+  const result = await callCodexFast('setFast',payload,signal,async (url, init) => {
+    assert.equal(url,'/codex-api/setFast');
+    assert.equal(init.credentials,'same-origin'); assert.equal(init.method,'POST');
+    assert.equal(init.signal,signal); assert.deepEqual(JSON.parse(init.body),{payload});
+    return {ok:true,json:async () => ({ok:true,value:{available:true,enabled:true,tier:'priority'}})};
+  });
+  assert.equal(result.enabled,true); assert.equal(result.tier,'priority');
+});
+test('no Fast control without a bridge-confirmed priority capability', async () => {
+  const req = (value) => callCodexFast('fastStatus',{},undefined,async () => ({ok:true,json:async () => ({ok:true,value})}));
+  for (const value of [null,{available:false},{available:true,enabled:true,tier:'ultrafast'},{available:true,enabled:'true',tier:'priority'}]) {
+    assert.equal(await req(value),null);
+  }
+  await assert.rejects(callCodexFast('fastStatus',{},undefined,async () => ({ok:false,status:404})));
+});
 const state = {status:'ready', pending:null,current:{provider:'p/q',model:'m'},groups:[
   {id:'p/q',name:'First',models:[{id:'m',name:'One',reasoning:{defaultEffort:'medium',efforts:[{id:'low',name:'Light'},{id:'medium',name:'Medium'}]}}]},
   {id:'p',name:'Second',models:[{id:'q/m',name:'One'}]}]};

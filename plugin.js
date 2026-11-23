@@ -1,9 +1,79 @@
 // This file is inserted into the lazy loader factory by build.mjs. No private UI imports.
+export async function callCodexFast(endpoint, payload, signal, transport = fetch) {
+  const response = await transport(`/codex-api/${endpoint}`, {
+    method: 'POST', credentials: 'same-origin', signal,
+    headers: { 'content-type': 'application/json' }, body: JSON.stringify({ payload }),
+  });
+  if (!response.ok) throw new Error('Codex Fast request failed');
+  const reply = await response.json();
+  if (reply?.ok !== true) throw new Error(reply?.error?.message || 'Codex Fast request failed');
+  const value = reply.value;
+  if (value?.available !== true || value.tier !== 'priority' || typeof value.enabled !== 'boolean') return null;
+  return { enabled: value.enabled, tier: value.tier,
+    label: typeof value.label === 'string' ? value.label : undefined,
+    detail: typeof value.detail === 'string' ? value.detail : undefined };
+}
+
+function createFastHook(React) {
+  const { useCallback, useEffect, useMemo, useRef, useState } = React;
+  return function useFast(sessionId, row) {
+    const model = row?.provider === 'openai-codex' ? row.model : null;
+    const target = useMemo(() => typeof sessionId === 'string' && model
+      ? {sessionId, model} : null, [sessionId, model]);
+    const [view, setView] = useState(null);
+    const active = useRef(null);
+    const refresh = useCallback(() => {
+      const current = active.current;
+      if (!target || current?.target !== target || current.write) return;
+      current.read?.abort();
+      const read = new AbortController();
+      current.read = read;
+      callCodexFast('fastStatus', target, read.signal).then(value => {
+        if (active.current === current && !read.signal.aborted) setView({target, value});
+      }, () => {
+        if (active.current === current && !read.signal.aborted) {
+          // A transient status failure is not evidence that Fast was switched off.
+          setView(previous => previous?.target === target && previous.value
+            ? {...previous, error:true} : previous);
+        }
+      });
+    }, [target]);
+    useEffect(() => {
+      if (!target) return;
+      const current = {target};
+      active.current = current;
+      refresh();
+      window.addEventListener('focus', refresh);
+      return () => {
+        window.removeEventListener('focus', refresh);
+        active.current = null;
+        current.read?.abort();
+      };
+    }, [target, refresh]);
+    const value = view?.target === target ? view?.value : null;
+    const onToggle = async enabled => {
+      const current = active.current;
+      if (!target || current?.target !== target || current.write || !value || typeof enabled !== 'boolean') return;
+      current.read?.abort();
+      current.write = true;
+      setView({target, value, pending:true});
+      try {
+        const next = await callCodexFast('setFast', {...target, enabled});
+        if (active.current === current) setView({target, value:next, error:!next});
+      } catch {
+        if (active.current === current) setView({target, value, error:true});
+      } finally { current.write = false; }
+    };
+    return { mode: value ? {...value, pending:!!view.pending, onToggle} : null,
+      refresh, error: view?.target === target && view?.error };
+  };
+}
 function makePlugin(React, createPortal, css, dictionaries) {
   const h = React.createElement;
   const View = createView(React, createPortal);
   const ns = 'dsh-model-tier-slider';
-  function Seat({source,locked,t}) {
+  const useFast = createFastHook(React);
+  function Seat({source,sessionId,locked,t}) {
     const read = React.useCallback(() => source.store.getSnapshot(), [source]);
     const subscribe = React.useCallback(fn => source.store.subscribe(fn), [source]);
     const snapshot = React.useSyncExternalStore(subscribe, read);
@@ -16,6 +86,7 @@ function makePlugin(React, createPortal, css, dictionaries) {
       return () => { mounted.current = false; };
     }, [source]);
     const projected = project(snapshot);
+    const fast = useFast(sessionId, projected.row);
     const submit = async (action, id) => {
       if (!mounted.current || locked || inflight.current) return false;
       const selection = selectionFor(read(), action, id, projected.modelId);
@@ -35,7 +106,8 @@ function makePlugin(React, createPortal, css, dictionaries) {
       ...projected, modelLabel: projected.modelLabel || t('selectModel'),
       busy: Boolean(snapshot.pending) || snapshot.status === 'selecting',
       disabled: Boolean(locked) || snapshot.status === 'loading',
-      error: error || snapshot.error || snapshot.failures.map(f => `${f.name}: ${f.message}`).join('; '),
+      fastMode: fast.mode, onFastOpen: fast.refresh,
+      error: (fast.error && t('fastError')) || error || snapshot.error || snapshot.failures.map(f => `${f.name}: ${f.message}`).join('; '),
       onSelect: id => submit('effort',id), onModel: id => submit('model',id),
       onReset: projected.row?.reasoning ? () => submit('reset') : undefined,
       onRetry: () => {setError(null); return source.load().catch(e => { if(mounted.current) setError(String(e?.message || e)); });},
