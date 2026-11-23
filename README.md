@@ -16,7 +16,7 @@ If you have the older `@local/model-tier-replica` installed, disable it first. B
 
 ## Usage
 
-Click the model name in the composer to open the panel. Drag the thumb to preview an effort level and release to apply it, or focus the slider and use the arrow keys. Click the model name in the middle of the panel to switch models. The reset arrow in the upper-right corner restores the current model’s default effort. Press `Esc` or click outside to close the panel.
+Click the model name in the composer to open the panel. Drag the thumb to follow the pointer continuously; on release it settles onto the nearest level and submits once. You can also focus the slider and use the arrow keys, `Home`, or `End`. Click the model name in the middle of the panel to switch models. The reset arrow in the upper-right corner restores the current model’s default effort. Press `Esc` or click outside to close the panel.
 
 A blue-to-purple gradient with stars marks the highest level. The animation stops when your system’s reduced-motion setting is on. The plugin does not add unsupported effort levels or a separate fast mode.
 

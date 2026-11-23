@@ -38,6 +38,14 @@ function selectionFor(snapshot, action, id, displayedModel) {
     ...(effort === undefined ? {} : {reasoningEffort: effort})};
 }
 
+// The visual position is continuous; only the committed index is discrete.
+function pointerFraction(clientX, left, width, grabOffset = 0) {
+  const travel = width - 28;
+  return travel <= 0 ? 0 : Math.min(1, Math.max(0, (clientX - left - 14 - grabOffset) / travel));
+}
+function tierAt(fraction, count) { return Math.round(fraction * Math.max(0, count - 1)); }
+function thumbPosition(fraction) { return `calc(${fraction * 100}% + ${14 - 28 * fraction}px)`; }
+
 function createView(React, createPortal) {
  const h = React.createElement, { useState, useRef, useLayoutEffect, useEffect, useMemo } = React;
  const reset = 'M3 4v5h5 M3.6 9a9 9 0 1 1 .2 7';
@@ -45,6 +53,65 @@ function createView(React, createPortal) {
    width: 15, height: 15, viewBox: '0 0 24 24', fill: 'none',
    stroke: 'currentColor', strokeWidth: 1.7, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true,
  }, h('path', { d: path }));
+ // Keep per-pixel updates local to the rail, not the surrounding model menu.
+ function EffortRail({ options, idx, tierLabel, label, peak, shining, blocked, slider, dragging, preview, commit }) {
+   const gesture = useRef(null);
+   const [point, setPoint] = useState(null);
+   const max = Math.max(0, options.length - 1);
+   const fraction = point ?? (max ? idx / max : 0);
+   const cancel = () => {
+     if (!gesture.current) return;
+     gesture.current = null; dragging.current = false; setPoint(null); preview(null);
+   };
+   useLayoutEffect(() => { if (blocked) cancel(); }, [blocked]);
+   useLayoutEffect(() => () => { dragging.current = false; }, [dragging]);
+   const sample = (e, g) => max ? pointerFraction(e.clientX, g.left, g.width, g.offset) : 0;
+   const down = e => {
+     if (blocked || !options.length || gesture.current || !e.isPrimary || e.button !== 0) return;
+     e.preventDefault();
+     slider.current?.focus({ preventScroll: true });
+     const { left, width } = e.currentTarget.getBoundingClientRect();
+     // A second grab may interrupt an in-progress snap. Use the painted position.
+     const thumb = e.currentTarget.querySelector('.mtr-thumb').getBoundingClientRect();
+     const center = thumb.left + thumb.width / 2;
+     const delta = e.clientX - center;
+     const g = { id: e.pointerId, left, width, offset: Math.abs(delta) <= 14 ? delta : 0 };
+     gesture.current = g; dragging.current = true;
+     e.currentTarget.setPointerCapture(e.pointerId);
+     const f = sample(e, g); setPoint(f); preview(tierAt(f, options.length));
+   };
+   const move = e => {
+     const g = gesture.current;
+     if (!g || g.id !== e.pointerId) return;
+     const f = sample(e, g); setPoint(f);
+     const i = tierAt(f, options.length); if (i !== idx) preview(i);
+   };
+   const up = e => {
+     const g = gesture.current;
+     if (!g || g.id !== e.pointerId) return;
+     const i = tierAt(sample(e, g), options.length);
+     gesture.current = null; dragging.current = false;
+     setPoint(null); preview(i); commit(i);
+   };
+   const interrupted = e => { if (gesture.current?.id === e.pointerId) cancel(); };
+   return h('div', { className: 'mtr-track' + (peak ? ' ultra' : '') + (point !== null ? ' mtr-dragging' : ''),
+     style: { '--mtr-position': thumbPosition(fraction) }, onPointerDown: down, onPointerMove: move,
+     onPointerUp: up, onPointerCancel: interrupted, onLostPointerCapture: interrupted },
+     h('i', { className: 'mtr-fill', style: { opacity: fraction > 0 ? 1 : 0 } }, shining && h('i', { className: 'mtr-stars' })),
+     h('span', { className: 'mtr-ticks', 'aria-hidden': true }, options.map((t, i) => h('i', { key: t.id,
+       style: i < idx ? { opacity: 0.6, background: '#fff' } : { opacity: 0.5 } }))),
+     h('i', { className: 'mtr-thumb' }),
+     h('input', { type: 'range', min: 0, max, step: 1, value: idx,
+       disabled: blocked || !options.length, 'aria-label': label, 'aria-valuetext': tierLabel, ref: slider,
+       onKeyDown: e => {
+         if (blocked || gesture.current || !['Home', 'End', 'Enter', ' '].includes(e.key)) return;
+         e.preventDefault();
+         const i = e.key === 'Home' ? 0 : e.key === 'End' ? max : idx;
+         preview(i); commit(i);
+       },
+       onChange: e => { if (!gesture.current && !blocked) { const i = Number(e.target.value); preview(i); commit(i); } } }),
+   );
+ }
  return function TierView({
    tiers = [], activeId, modelLabel, modelId, models = [], busy, disabled,
    onSelect, onModel, onReset, fast, error, t,
@@ -52,9 +119,8 @@ function createView(React, createPortal) {
    const text = (key, fallback) => t?.(key) || fallback;
    const [page, setPage] = useState(''), [preview, setPreview] = useState(null);
    const [pendingModel, setPendingModel] = useState(null);
-   const anchor = useRef(null), panel = useRef(null), slider = useRef(null), railRef = useRef(null);
-   const [railW, setRailW] = useState(0);
-   const drag = useRef(false), draft = useRef(null), keyboard = useRef(false);
+   const anchor = useRef(null), panel = useRef(null), slider = useRef(null);
+   const drag = useRef(false), keyboard = useRef(false);
    const options = tiers.filter(x => x.available !== false);
    const selected = options.findIndex(x => x.id === activeId);
    const idx = preview ?? Math.max(0, selected);
@@ -74,7 +140,7 @@ function createView(React, createPortal) {
    }, [models]);
 
    const close = (focus = false) => {
-     drag.current = false; draft.current = null; setPreview(null); setPage('');
+     drag.current = false; setPreview(null); setPage('');
      if (focus) anchor.current?.focus();
    };
 
@@ -111,17 +177,6 @@ function createView(React, createPortal) {
        if (p.hidePopover && p.matches(':popover-open')) p.hidePopover();
      };
    }, [open]);
-   // The thumb centre and the fill edge derive from one measured travel width, so they can never disagree.
-   useLayoutEffect(() => {
-     if (page !== 'effort') return;
-     const el = railRef.current;
-     if (!el) return;
-     const measure = () => setRailW(el.getBoundingClientRect().width);
-     measure();
-     const ro = new ResizeObserver(measure);
-     ro.observe(el);
-     return () => ro.disconnect();
-   }, [page]);
    // Keyboard entry lands focus inside the pane; pointer entry keeps it on the trigger (no stray ring).
    useLayoutEffect(() => {
      if (!page || !keyboard.current) return;
@@ -144,7 +199,7 @@ function createView(React, createPortal) {
      if (preview === null || drag.current) return;
      if (busy) return;
      const wanted = options[preview];
-     if (error || !wanted || wanted.id === activeId) { setPreview(null); draft.current = null; }
+     if (error || !wanted || wanted.id === activeId) { setPreview(null); }
    }, [preview, busy, activeId, error, options]);
 
    const commit = i => {
@@ -153,7 +208,6 @@ function createView(React, createPortal) {
    const button = (label, action, child, cls, extra = {}) => h('button', {
      type: 'button', className: cls, title: label, 'aria-label': label, onClick: action, ...extra,
    }, child);
-   const pct = options.length > 1 ? idx / (options.length - 1) : 0;
    const ultra = /ultra/i.test(current?.id || '');
    const peak = ultra || (!!current && options.length > 1 && idx === options.length - 1);
    const shining = fast || peak;
@@ -168,31 +222,11 @@ function createView(React, createPortal) {
      'mtr-trigger',
      { 'aria-expanded': !!page, 'aria-haspopup': 'dialog', disabled: !!disabled, ref: anchor },
    );
-   const travel = railW > 14 ? railW - 28 : 0;
-   const x = travel ? 14 + pct * travel : 0;
-   const track = h('div', { className: 'mtr-track' + (peak ? ' ultra' : '') + (shining ? ' shine' : ''), ref: railRef },
-     idx > 0 && h('i', { className: 'mtr-fill', style: { width: x + 'px' } },
-       shining && h('i', { className: 'mtr-stars' })),
-     h('span', { className: 'mtr-ticks', 'aria-hidden': true },
-       options.map((tier, i) => h('i', { key: tier.id, style: i < idx ? { opacity: 0.6, background: '#fff' } : { opacity: 0.5 } }))),
-     h('i', { className: 'mtr-thumb', style: { left: x + 'px' } }),
-     h('input', {
-       type: 'range', min: 0, max: Math.max(1, options.length - 1), step: 1, value: idx,
-       disabled: blocked || options.length < 2, 'aria-label': text('selectEffort', 'Select effort'),
-       'aria-valuetext': tierLabel, ref: slider,
-       onPointerDown: e => { drag.current = true; draft.current = null; e.currentTarget.setPointerCapture(e.pointerId); },
-       onChange: e => {
-         const i = Number(e.target.value);
-         setPreview(i);
-         if (drag.current) draft.current = i; else commit(i);
-       },
-       onPointerUp: e => {
-         if (drag.current) commit(draft.current ?? Number(e.currentTarget.value));
-         drag.current = false; draft.current = null;
-       },
-       onPointerCancel: () => { drag.current = false; draft.current = null; setPreview(null); },
-     }),
-   );
+   const track = h(EffortRail, {
+     key: JSON.stringify([modelId, ...options.map(tier => tier.id)]),
+     options, idx, tierLabel, label: text('selectEffort', 'Select effort'), peak, shining, blocked,
+     slider, dragging: drag, preview: setPreview, commit,
+   });
    const header = h('div', { className: 'mtr-head' },
      h('span', { className: 'mtr-spacer', 'aria-hidden': true }),
      button(text('selectModel', 'Select model'), () => setPage('model'),
@@ -285,5 +319,5 @@ function makePlugin(React, createPortal, css, dictionaries) {
   }};
 }
 
-return makePlugin(require('react'),require('react-dom').createPortal,".mtr-root,.mtr-panel{font:13px/1.3 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:var(--dsw-alias-label-primary);--mtr-blue:var(--dsw-static-blue-500,#3b82f6);--mtr-muted:var(--dsw-alias-label-secondary);--mtr-surface:var(--dsw-alias-bg-layer-1);--mtr-hover:color-mix(in srgb,currentColor 6%,transparent)}\n.mtr-root{display:inline-flex;min-width:0;align-items:center}.mtr-root button,.mtr-panel button{font:inherit;letter-spacing:normal;text-transform:none;color:inherit;cursor:pointer;border:0;background:none;box-shadow:none;margin:0;min-height:0}.mtr-root button:focus-visible,.mtr-panel button:focus-visible,.mtr-track:has(input:focus-visible){outline:2px solid var(--mtr-blue);outline-offset:2px}\n.mtr-root .mtr-trigger{display:inline-flex;align-items:center;justify-content:center;gap:4px;height:28px;max-width:min(220px,34vw);padding:0 9px;border-radius:18px;white-space:nowrap}.mtr-trigger strong,.mtr-trigger span,.mtr-heading small,.mtr-option span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.mtr-trigger strong{font-weight:560}.mtr-trigger span,.mtr-heading small,.mtr-caption,.mtr-panel .mtr-group-name{color:var(--mtr-muted)}.mtr-trigger:hover,.mtr-trigger[aria-expanded=true],.mtr-panel button:enabled:hover{background:var(--mtr-hover)}\n.mtr-panel{position:fixed;inset:auto;margin:0;box-sizing:border-box;visibility:hidden;width:min(255px,calc(100vw - 12px));max-height:calc(100dvh - 12px);overflow:auto;padding:10px 12px 12px;border:1px solid var(--dsw-alias-border-l1);border-radius:16px;background:var(--mtr-surface);box-shadow:0 12px 30px -12px color-mix(in srgb,var(--dsw-alias-label-primary) 30%,transparent),0 2px 6px color-mix(in srgb,var(--dsw-alias-label-primary) 6%,transparent);z-index:1000}.mtr-head{display:grid;grid-template-columns:24px minmax(0,1fr) 24px;align-items:start;gap:2px}.mtr-panel .mtr-icon{width:24px;height:24px;padding:4px;display:grid;place-items:center;color:var(--mtr-muted);border-radius:8px}.mtr-panel button:disabled{cursor:default;opacity:.5}.mtr-panel .mtr-heading{display:grid;min-width:0;max-width:100%;justify-self:center;gap:2px;padding:3px 8px;border-radius:8px;text-align:center}.mtr-heading b{font-size:14px;font-weight:560}.mtr-heading b.mtr-ultra-label{color:#8b5cf6}.mtr-heading small{font-size:12px}\n.mtr-track{position:relative;height:24px;margin-top:11px;border-radius:99px;background:color-mix(in srgb,var(--mtr-blue) 12%,var(--mtr-surface))}.mtr-fill{position:absolute;left:0;top:0;bottom:0;min-width:0;overflow:hidden;border-radius:99px;background:var(--mtr-blue);pointer-events:none;z-index:1}.mtr-track.ultra .mtr-fill{background:linear-gradient(100deg,#2563eb,#4f46e5 38%,#a855f7 72%,#7c3aed);background-size:150% 100%;animation:mtr-flow 3s ease-in-out infinite alternate}.mtr-stars{position:absolute;inset:0;width:100%;height:100%;background:radial-gradient(circle at 9px 11px,#fff9 .9px,transparent 1.3px) 0 0/37px 18px,radial-gradient(circle at 22px 5px,#fff6 1px,transparent 1.5px) 0 0/53px 21px;animation:mtr-drift 5s linear infinite}.mtr-ticks{position:absolute;inset:0 14px;display:flex;align-items:center;justify-content:space-between;pointer-events:none;z-index:2}.mtr-ticks i{width:2px;height:2px;border-radius:50%;background:var(--dsw-alias-label-secondary)}.mtr-thumb{position:absolute;top:50%;transform:translate(-50%,-50%);width:28px;height:28px;box-sizing:border-box;border-radius:50%;background:var(--mtr-surface);border:1px solid color-mix(in srgb,var(--dsw-alias-label-primary) 12%,transparent);box-shadow:0 1px 3px color-mix(in srgb,var(--dsw-alias-label-primary) 18%,transparent);pointer-events:none;z-index:3}.mtr-track input{position:absolute;left:0;top:-2px;width:100%;height:28px;appearance:none;background:none;opacity:0;cursor:pointer;margin:0;padding:0;touch-action:none;z-index:4}.mtr-track input::-webkit-slider-runnable-track{height:28px;background:none}.mtr-track input::-webkit-slider-thumb{appearance:none;width:28px;height:28px;margin:0}.mtr-track input::-moz-range-track{height:28px;background:none}.mtr-track input::-moz-range-thumb{width:28px;height:28px;border:0}\n.mtr-list{max-height:min(300px,46vh);overflow:auto}.mtr-group+.mtr-group{border-top:1px solid var(--dsw-alias-border-l1);margin-top:3px;padding-top:3px}.mtr-panel .mtr-group-name{font-size:11px;font-weight:560;padding:6px 5px 2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.mtr-caption{font-size:12px;padding:4px 3px}.mtr-panel .mtr-option{display:flex;width:100%;justify-content:space-between;align-items:center;gap:8px;padding:7px 5px;border-radius:7px;text-align:left}.mtr-error{color:var(--dsw-alias-state-error-primary);font-size:12px;margin-top:8px;overflow-wrap:anywhere}@keyframes mtr-flow{to{background-position:100% 50%}}@keyframes mtr-drift{to{background-position:37px 0,53px 0}}@media(prefers-reduced-motion:reduce){.mtr-track.ultra .mtr-fill,.mtr-stars{animation:none}}.mtr-trigger>.mtr-mini{display:var(--dsh-composer-model-icon-display,none);line-height:0}.mtr-trigger>strong,.mtr-trigger>span{display:var(--dsh-composer-model-text-display,inline)}\n",{"en":{"selectEffort":"Reasoning effort","selectModel":"Select model","fast":"Fast mode","reset":"Reset to model default","unsupported":"This model does not offer selectable reasoning levels.","higherUsage":"Higher usage","defaultTier":"Model default","requiresFast":"Requires fast mode","retry":"Retry","unavailable":"Not available"},"zh":{"selectEffort":"推理档位","selectModel":"选择模型","fast":"快速模式","reset":"恢复模型默认档位","unsupported":"当前模型未提供可选推理档位。","higherUsage":"用量较高","defaultTier":"模型默认","requiresFast":"需要快速模式","retry":"重试","unavailable":"不可用"}});
+return makePlugin(require('react'),require('react-dom').createPortal,".mtr-root,.mtr-panel{font:13px/1.3 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:var(--dsw-alias-label-primary);--mtr-blue:var(--dsw-static-blue-500,#3b82f6);--mtr-muted:var(--dsw-alias-label-secondary);--mtr-surface:var(--dsw-alias-bg-layer-1);--mtr-hover:color-mix(in srgb,currentColor 6%,transparent)}\n.mtr-root{display:inline-flex;min-width:0;align-items:center}.mtr-root button,.mtr-panel button{font:inherit;letter-spacing:normal;text-transform:none;color:inherit;cursor:pointer;border:0;background:none;box-shadow:none;margin:0;min-height:0}.mtr-root button:focus-visible,.mtr-panel button:focus-visible,.mtr-track:has(input:focus-visible){outline:2px solid var(--mtr-blue);outline-offset:2px}\n.mtr-root .mtr-trigger{display:inline-flex;align-items:center;justify-content:center;gap:4px;height:28px;max-width:min(220px,34vw);padding:0 9px;border-radius:18px;white-space:nowrap}.mtr-trigger strong,.mtr-trigger span,.mtr-heading small,.mtr-option span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.mtr-trigger strong{font-weight:560}.mtr-trigger span,.mtr-heading small,.mtr-caption,.mtr-panel .mtr-group-name{color:var(--mtr-muted)}.mtr-trigger:hover,.mtr-trigger[aria-expanded=true],.mtr-panel button:enabled:hover{background:var(--mtr-hover)}\n.mtr-panel{position:fixed;inset:auto;margin:0;box-sizing:border-box;visibility:hidden;width:min(255px,calc(100vw - 12px));max-height:calc(100dvh - 12px);overflow:auto;padding:10px 12px 12px;border:1px solid var(--dsw-alias-border-l1);border-radius:16px;background:var(--mtr-surface);box-shadow:0 12px 30px -12px color-mix(in srgb,var(--dsw-alias-label-primary) 30%,transparent),0 2px 6px color-mix(in srgb,var(--dsw-alias-label-primary) 6%,transparent);z-index:1000}.mtr-head{display:grid;grid-template-columns:24px minmax(0,1fr) 24px;align-items:start;gap:2px}.mtr-panel .mtr-icon{width:24px;height:24px;padding:4px;display:grid;place-items:center;color:var(--mtr-muted);border-radius:8px}.mtr-panel button:disabled{cursor:default;opacity:.5}.mtr-panel .mtr-heading{display:grid;min-width:0;max-width:100%;justify-self:center;gap:2px;padding:3px 8px;border-radius:8px;text-align:center}.mtr-heading b{font-size:14px;font-weight:560}.mtr-heading b.mtr-ultra-label{color:#8b5cf6}.mtr-heading small{font-size:12px}\n.mtr-track{position:relative;height:24px;margin-top:11px;border-radius:99px;background:color-mix(in srgb,var(--mtr-blue) 12%,var(--mtr-surface))}.mtr-fill{position:absolute;left:0;top:0;bottom:0;min-width:0;overflow:hidden;border-radius:99px;background:var(--mtr-blue);pointer-events:none;z-index:1}.mtr-track.ultra .mtr-fill{background:linear-gradient(100deg,#2563eb,#4f46e5 38%,#a855f7 72%,#7c3aed);background-size:150% 100%;animation:mtr-flow 3s ease-in-out infinite alternate}.mtr-stars{position:absolute;inset:0;width:100%;height:100%;background:radial-gradient(circle at 9px 11px,#fff9 .9px,transparent 1.3px) 0 0/37px 18px,radial-gradient(circle at 22px 5px,#fff6 1px,transparent 1.5px) 0 0/53px 21px;animation:mtr-drift 5s linear infinite}.mtr-ticks{position:absolute;inset:0 14px;display:flex;align-items:center;justify-content:space-between;pointer-events:none;z-index:2}.mtr-ticks i{width:2px;height:2px;border-radius:50%;background:var(--dsw-alias-label-secondary)}.mtr-thumb{position:absolute;top:50%;transform:translate(-50%,-50%);width:28px;height:28px;box-sizing:border-box;border-radius:50%;background:var(--mtr-surface);border:1px solid color-mix(in srgb,var(--dsw-alias-label-primary) 12%,transparent);box-shadow:0 1px 3px color-mix(in srgb,var(--dsw-alias-label-primary) 18%,transparent);pointer-events:none;z-index:3}.mtr-track input{position:absolute;left:0;top:-2px;width:100%;height:28px;appearance:none;background:none;opacity:0;cursor:pointer;margin:0;padding:0;touch-action:none;z-index:4}.mtr-track input::-webkit-slider-runnable-track{height:28px;background:none}.mtr-track input::-webkit-slider-thumb{appearance:none;width:28px;height:28px;margin:0}.mtr-track input::-moz-range-track{height:28px;background:none}.mtr-track input::-moz-range-thumb{width:28px;height:28px;border:0}\n/* Both edges use the same target and easing. Never ease toward a moving pointer. */\n.mtr-track{touch-action:none;user-select:none;cursor:pointer;--mtr-snap:145ms cubic-bezier(.22,.75,.25,1)}\n.mtr-track .mtr-fill{width:var(--mtr-position);transition:width var(--mtr-snap),opacity var(--mtr-snap)}\n.mtr-track .mtr-thumb{left:var(--mtr-position);transition:left var(--mtr-snap)}\n.mtr-track.mtr-dragging .mtr-fill,.mtr-track.mtr-dragging .mtr-thumb{transition:none}\n.mtr-track input{pointer-events:none}\n@media(prefers-reduced-motion:reduce){.mtr-track{--mtr-snap:0s linear}}\n.mtr-list{max-height:min(300px,46vh);overflow:auto}.mtr-group+.mtr-group{border-top:1px solid var(--dsw-alias-border-l1);margin-top:3px;padding-top:3px}.mtr-panel .mtr-group-name{font-size:11px;font-weight:560;padding:6px 5px 2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.mtr-caption{font-size:12px;padding:4px 3px}.mtr-panel .mtr-option{display:flex;width:100%;justify-content:space-between;align-items:center;gap:8px;padding:7px 5px;border-radius:7px;text-align:left}.mtr-error{color:var(--dsw-alias-state-error-primary);font-size:12px;margin-top:8px;overflow-wrap:anywhere}@keyframes mtr-flow{to{background-position:100% 50%}}@keyframes mtr-drift{to{background-position:37px 0,53px 0}}@media(prefers-reduced-motion:reduce){.mtr-track.ultra .mtr-fill,.mtr-stars{animation:none}}.mtr-trigger>.mtr-mini{display:var(--dsh-composer-model-icon-display,none);line-height:0}.mtr-trigger>strong,.mtr-trigger>span{display:var(--dsh-composer-model-text-display,inline)}\n",{"en":{"selectEffort":"Reasoning effort","selectModel":"Select model","fast":"Fast mode","reset":"Reset to model default","unsupported":"This model does not offer selectable reasoning levels.","higherUsage":"Higher usage","defaultTier":"Model default","requiresFast":"Requires fast mode","retry":"Retry","unavailable":"Not available"},"zh":{"selectEffort":"推理档位","selectModel":"选择模型","fast":"快速模式","reset":"恢复模型默认档位","unsupported":"当前模型未提供可选推理档位。","higherUsage":"用量较高","defaultTier":"模型默认","requiresFast":"需要快速模式","retry":"重试","unavailable":"不可用"}});
 }});

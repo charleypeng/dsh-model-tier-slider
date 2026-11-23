@@ -5,6 +5,21 @@ const state = {status:'ready', pending:null,current:{provider:'p/q',model:'m'},g
   {id:'p/q',name:'First',models:[{id:'m',name:'One',reasoning:{defaultEffort:'medium',efforts:[{id:'low',name:'Light'},{id:'medium',name:'Medium'}]}}]},
   {id:'p',name:'Second',models:[{id:'q/m',name:'One'}]}]};
 const route = project(state).modelId;
+
+import {pointerFraction, tierAt, thumbPosition} from './view.js';
+test('pointer travel is continuous inside a tier, but release selects the nearest stop', () => {
+  // 228px rail with a 28px thumb gives exactly 200px of travel.
+  const at = x => pointerFraction(x, 50, 228);
+  assert.equal(at(104), .20); assert.equal(at(114), .25);
+  assert.equal(tierAt(at(104), 5), 1); assert.equal(tierAt(at(114), 5), 1);
+  assert.equal(tierAt(at(138), 5), 1); assert.equal(tierAt(at(139), 5), 2);
+});
+test('off-centre grabs keep the position; bounds and single-tier tracks are safe', () => {
+  assert.equal(pointerFraction(224, 100, 228, 10), .5);
+  assert.equal(pointerFraction(-500, 100, 228), 0); assert.equal(pointerFraction(500, 100, 228), 1);
+  assert.equal(pointerFraction(140, 100, 20), 0); assert.equal(tierAt(.85, 1), 0);
+  assert.equal(thumbPosition(.5), 'calc(50% + 0px)');
+});
 test('generated client registers a single composer seat and skips addressed subagents',async()=>{
   const {readFile} = await import('node:fs/promises');
   const vm = await import('node:vm'); let module,entry,disposer;

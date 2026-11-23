@@ -1,3 +1,11 @@
+// The visual position is continuous; only the committed index is discrete.
+export function pointerFraction(clientX, left, width, grabOffset = 0) {
+  const travel = width - 28;
+  return travel <= 0 ? 0 : Math.min(1, Math.max(0, (clientX - left - 14 - grabOffset) / travel));
+}
+export function tierAt(fraction, count) { return Math.round(fraction * Math.max(0, count - 1)); }
+export function thumbPosition(fraction) { return `calc(${fraction * 100}% + ${14 - 28 * fraction}px)`; }
+
 export function createView(React, createPortal) {
  const h = React.createElement, { useState, useRef, useLayoutEffect, useEffect, useMemo } = React;
  const reset = 'M3 4v5h5 M3.6 9a9 9 0 1 1 .2 7';
@@ -5,6 +13,65 @@ export function createView(React, createPortal) {
    width: 15, height: 15, viewBox: '0 0 24 24', fill: 'none',
    stroke: 'currentColor', strokeWidth: 1.7, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true,
  }, h('path', { d: path }));
+ // Keep per-pixel updates local to the rail, not the surrounding model menu.
+ function EffortRail({ options, idx, tierLabel, label, peak, shining, blocked, slider, dragging, preview, commit }) {
+   const gesture = useRef(null);
+   const [point, setPoint] = useState(null);
+   const max = Math.max(0, options.length - 1);
+   const fraction = point ?? (max ? idx / max : 0);
+   const cancel = () => {
+     if (!gesture.current) return;
+     gesture.current = null; dragging.current = false; setPoint(null); preview(null);
+   };
+   useLayoutEffect(() => { if (blocked) cancel(); }, [blocked]);
+   useLayoutEffect(() => () => { dragging.current = false; }, [dragging]);
+   const sample = (e, g) => max ? pointerFraction(e.clientX, g.left, g.width, g.offset) : 0;
+   const down = e => {
+     if (blocked || !options.length || gesture.current || !e.isPrimary || e.button !== 0) return;
+     e.preventDefault();
+     slider.current?.focus({ preventScroll: true });
+     const { left, width } = e.currentTarget.getBoundingClientRect();
+     // A second grab may interrupt an in-progress snap. Use the painted position.
+     const thumb = e.currentTarget.querySelector('.mtr-thumb').getBoundingClientRect();
+     const center = thumb.left + thumb.width / 2;
+     const delta = e.clientX - center;
+     const g = { id: e.pointerId, left, width, offset: Math.abs(delta) <= 14 ? delta : 0 };
+     gesture.current = g; dragging.current = true;
+     e.currentTarget.setPointerCapture(e.pointerId);
+     const f = sample(e, g); setPoint(f); preview(tierAt(f, options.length));
+   };
+   const move = e => {
+     const g = gesture.current;
+     if (!g || g.id !== e.pointerId) return;
+     const f = sample(e, g); setPoint(f);
+     const i = tierAt(f, options.length); if (i !== idx) preview(i);
+   };
+   const up = e => {
+     const g = gesture.current;
+     if (!g || g.id !== e.pointerId) return;
+     const i = tierAt(sample(e, g), options.length);
+     gesture.current = null; dragging.current = false;
+     setPoint(null); preview(i); commit(i);
+   };
+   const interrupted = e => { if (gesture.current?.id === e.pointerId) cancel(); };
+   return h('div', { className: 'mtr-track' + (peak ? ' ultra' : '') + (point !== null ? ' mtr-dragging' : ''),
+     style: { '--mtr-position': thumbPosition(fraction) }, onPointerDown: down, onPointerMove: move,
+     onPointerUp: up, onPointerCancel: interrupted, onLostPointerCapture: interrupted },
+     h('i', { className: 'mtr-fill', style: { opacity: fraction > 0 ? 1 : 0 } }, shining && h('i', { className: 'mtr-stars' })),
+     h('span', { className: 'mtr-ticks', 'aria-hidden': true }, options.map((t, i) => h('i', { key: t.id,
+       style: i < idx ? { opacity: 0.6, background: '#fff' } : { opacity: 0.5 } }))),
+     h('i', { className: 'mtr-thumb' }),
+     h('input', { type: 'range', min: 0, max, step: 1, value: idx,
+       disabled: blocked || !options.length, 'aria-label': label, 'aria-valuetext': tierLabel, ref: slider,
+       onKeyDown: e => {
+         if (blocked || gesture.current || !['Home', 'End', 'Enter', ' '].includes(e.key)) return;
+         e.preventDefault();
+         const i = e.key === 'Home' ? 0 : e.key === 'End' ? max : idx;
+         preview(i); commit(i);
+       },
+       onChange: e => { if (!gesture.current && !blocked) { const i = Number(e.target.value); preview(i); commit(i); } } }),
+   );
+ }
  return function TierView({
    tiers = [], activeId, modelLabel, modelId, models = [], busy, disabled,
    onSelect, onModel, onReset, fast, error, t,
@@ -12,9 +79,8 @@ export function createView(React, createPortal) {
    const text = (key, fallback) => t?.(key) || fallback;
    const [page, setPage] = useState(''), [preview, setPreview] = useState(null);
    const [pendingModel, setPendingModel] = useState(null);
-   const anchor = useRef(null), panel = useRef(null), slider = useRef(null), railRef = useRef(null);
-   const [railW, setRailW] = useState(0);
-   const drag = useRef(false), draft = useRef(null), keyboard = useRef(false);
+   const anchor = useRef(null), panel = useRef(null), slider = useRef(null);
+   const drag = useRef(false), keyboard = useRef(false);
    const options = tiers.filter(x => x.available !== false);
    const selected = options.findIndex(x => x.id === activeId);
    const idx = preview ?? Math.max(0, selected);
@@ -34,7 +100,7 @@ export function createView(React, createPortal) {
    }, [models]);
 
    const close = (focus = false) => {
-     drag.current = false; draft.current = null; setPreview(null); setPage('');
+     drag.current = false; setPreview(null); setPage('');
      if (focus) anchor.current?.focus();
    };
 
@@ -71,17 +137,6 @@ export function createView(React, createPortal) {
        if (p.hidePopover && p.matches(':popover-open')) p.hidePopover();
      };
    }, [open]);
-   // The thumb centre and the fill edge derive from one measured travel width, so they can never disagree.
-   useLayoutEffect(() => {
-     if (page !== 'effort') return;
-     const el = railRef.current;
-     if (!el) return;
-     const measure = () => setRailW(el.getBoundingClientRect().width);
-     measure();
-     const ro = new ResizeObserver(measure);
-     ro.observe(el);
-     return () => ro.disconnect();
-   }, [page]);
    // Keyboard entry lands focus inside the pane; pointer entry keeps it on the trigger (no stray ring).
    useLayoutEffect(() => {
      if (!page || !keyboard.current) return;
@@ -104,7 +159,7 @@ export function createView(React, createPortal) {
      if (preview === null || drag.current) return;
      if (busy) return;
      const wanted = options[preview];
-     if (error || !wanted || wanted.id === activeId) { setPreview(null); draft.current = null; }
+     if (error || !wanted || wanted.id === activeId) { setPreview(null); }
    }, [preview, busy, activeId, error, options]);
 
    const commit = i => {
@@ -113,7 +168,6 @@ export function createView(React, createPortal) {
    const button = (label, action, child, cls, extra = {}) => h('button', {
      type: 'button', className: cls, title: label, 'aria-label': label, onClick: action, ...extra,
    }, child);
-   const pct = options.length > 1 ? idx / (options.length - 1) : 0;
    const ultra = /ultra/i.test(current?.id || '');
    const peak = ultra || (!!current && options.length > 1 && idx === options.length - 1);
    const shining = fast || peak;
@@ -128,31 +182,11 @@ export function createView(React, createPortal) {
      'mtr-trigger',
      { 'aria-expanded': !!page, 'aria-haspopup': 'dialog', disabled: !!disabled, ref: anchor },
    );
-   const travel = railW > 14 ? railW - 28 : 0;
-   const x = travel ? 14 + pct * travel : 0;
-   const track = h('div', { className: 'mtr-track' + (peak ? ' ultra' : '') + (shining ? ' shine' : ''), ref: railRef },
-     idx > 0 && h('i', { className: 'mtr-fill', style: { width: x + 'px' } },
-       shining && h('i', { className: 'mtr-stars' })),
-     h('span', { className: 'mtr-ticks', 'aria-hidden': true },
-       options.map((tier, i) => h('i', { key: tier.id, style: i < idx ? { opacity: 0.6, background: '#fff' } : { opacity: 0.5 } }))),
-     h('i', { className: 'mtr-thumb', style: { left: x + 'px' } }),
-     h('input', {
-       type: 'range', min: 0, max: Math.max(1, options.length - 1), step: 1, value: idx,
-       disabled: blocked || options.length < 2, 'aria-label': text('selectEffort', 'Select effort'),
-       'aria-valuetext': tierLabel, ref: slider,
-       onPointerDown: e => { drag.current = true; draft.current = null; e.currentTarget.setPointerCapture(e.pointerId); },
-       onChange: e => {
-         const i = Number(e.target.value);
-         setPreview(i);
-         if (drag.current) draft.current = i; else commit(i);
-       },
-       onPointerUp: e => {
-         if (drag.current) commit(draft.current ?? Number(e.currentTarget.value));
-         drag.current = false; draft.current = null;
-       },
-       onPointerCancel: () => { drag.current = false; draft.current = null; setPreview(null); },
-     }),
-   );
+   const track = h(EffortRail, {
+     key: JSON.stringify([modelId, ...options.map(tier => tier.id)]),
+     options, idx, tierLabel, label: text('selectEffort', 'Select effort'), peak, shining, blocked,
+     slider, dragging: drag, preview: setPreview, commit,
+   });
    const header = h('div', { className: 'mtr-head' },
      h('span', { className: 'mtr-spacer', 'aria-hidden': true }),
      button(text('selectModel', 'Select model'), () => setPage('model'),
