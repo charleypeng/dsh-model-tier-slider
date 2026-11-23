@@ -242,9 +242,9 @@ export function createView(React, createPortal) {
    }, child);
    const ultra = /ultra/i.test(current?.id || '');
    const peak = ultra || (!!current && options.length > 1 && idx === options.length - 1);
-   // Fast does not select an effort. For models without Fast keep the legacy top-stop effect.
+   // The effort determines the rail color; Fast only changes particle motion.
    const fastActive = !!fastMode?.enabled;
-   const purple = ultra || (!fastMode && peak);
+   const purple = peak || current?.id?.toLowerCase() === 'max';
    const shining = fastActive || peak;
    const subtitle = ultra ? text('higherUsage', 'Consumes usage limits faster') : model;
    const trigger = button(

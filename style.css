@@ -34,7 +34,7 @@
 .mtr-fast-tip-body small{font-size:inherit;color:#c4c7cc}
 
 /* Two independently drifting fields, cropped by the same fill edge as the thumb. */
-.mtr-fast-active .mtr-stars{background:none;animation:none}
+.mtr-fast-active .mtr-stars{background:none;animation:none;--mtr-fast-drift-speed:1.3}
 .mtr-fast-active .mtr-stars::before,.mtr-fast-active .mtr-stars::after{content:'';position:absolute;inset:0}
 .mtr-fast-active .mtr-stars::before{
   --mtr-star-travel:61px;
@@ -43,7 +43,7 @@
     radial-gradient(circle at 26px 17px,#fff9 .6px,transparent 1.1px),
     radial-gradient(circle at 46px 11px,#fffb .8px,transparent 1.4px);
   background-size:var(--mtr-star-travel) 24px;
-  animation:mtr-fast-drift 4.8s linear infinite;
+  animation:mtr-fast-drift calc(4.8s / var(--mtr-fast-drift-speed)) linear infinite;
 }
 .mtr-fast-active .mtr-stars::after{
   --mtr-star-travel:83px;
@@ -52,7 +52,7 @@
     radial-gradient(circle at 35px 6px,#fff9 .7px,transparent 1.2px),
     radial-gradient(circle at 65px 17px,#fffb .8px,transparent 1.4px);
   background-size:var(--mtr-star-travel) 24px;
-  animation:mtr-fast-drift 8s linear infinite,mtr-fast-twinkle 2.8s ease-in-out infinite alternate;
+  animation:mtr-fast-drift calc(8s / var(--mtr-fast-drift-speed)) linear infinite,mtr-fast-twinkle 2.8s ease-in-out infinite alternate;
 }
 @keyframes mtr-fast-drift{to{background-position:var(--mtr-star-travel) 0}}
 @keyframes mtr-fast-twinkle{from{opacity:.44}to{opacity:.92}}
