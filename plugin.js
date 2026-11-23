@@ -14,12 +14,15 @@ export async function callCodexFast(endpoint, payload, signal, transport = fetch
     detail: typeof value.detail === 'string' ? value.detail : undefined };
 }
 
+// Register a provider only when its backend reports and enforces the real service tier.
+const priorityBackends = new Map([['openai-codex', callCodexFast]]);
 function createFastHook(React) {
   const { useCallback, useEffect, useMemo, useRef, useState } = React;
   return function useFast(sessionId, row) {
-    const model = row?.provider === 'openai-codex' ? row.model : null;
+    const backend = priorityBackends.get(row?.provider);
+    const model = backend ? row.model : null;
     const target = useMemo(() => typeof sessionId === 'string' && model
-      ? {sessionId, model} : null, [sessionId, model]);
+      ? {sessionId, model} : null, [sessionId, model, backend]);
     const [view, setView] = useState(null);
     const active = useRef(null);
     const refresh = useCallback(() => {
@@ -28,7 +31,7 @@ function createFastHook(React) {
       current.read?.abort();
       const read = new AbortController();
       current.read = read;
-      callCodexFast('fastStatus', target, read.signal).then(value => {
+      backend('fastStatus', target, read.signal).then(value => {
         if (active.current === current && !read.signal.aborted) setView({target, value});
       }, () => {
         if (active.current === current && !read.signal.aborted) {
@@ -37,7 +40,7 @@ function createFastHook(React) {
             ? {...previous, error:true} : previous);
         }
       });
-    }, [target]);
+    }, [target, backend]);
     useEffect(() => {
       if (!target) return;
       const current = {target};
@@ -58,7 +61,7 @@ function createFastHook(React) {
       current.write = true;
       setView({target, value, pending:true});
       try {
-        const next = await callCodexFast('setFast', {...target, enabled});
+        const next = await backend('setFast', {...target, enabled});
         if (active.current === current) setView({target, value:next, error:!next});
       } catch {
         if (active.current === current) setView({target, value, error:true});
@@ -68,7 +71,7 @@ function createFastHook(React) {
       refresh, error: view?.target === target && view?.error };
   };
 }
-function makePlugin(React, createPortal, css, dictionaries) {
+function makePlugin(React, createPortal, css, dictionaries, speedProfiles) {
   const h = React.createElement;
   const View = createView(React, createPortal);
   const ns = 'dsh-model-tier-slider';
@@ -87,9 +90,17 @@ function makePlugin(React, createPortal, css, dictionaries) {
     }, [source]);
     const projected = project(snapshot);
     const fast = useFast(sessionId, projected.row);
+    const quickActions = resolveSpeedActions(projected, speedProfiles, !!fast.mode);
     const submit = async (action, id) => {
       if (!mounted.current || locked || inflight.current) return false;
-      const selection = selectionFor(read(), action, id, projected.modelId);
+      const latest = read();
+      if (action === 'speed') {
+        const shortcut = resolveSpeedActions(project(latest), speedProfiles, !!fast.mode).find(item => item.id === id);
+        if (!shortcut) return false;
+        action = shortcut.kind;
+        id = shortcut.value;
+      }
+      const selection = selectionFor(latest, action, id, projected.modelId);
       if (!selection) return false;
       inflight.current = true;
       setError(null);
@@ -107,6 +118,11 @@ function makePlugin(React, createPortal, css, dictionaries) {
       busy: Boolean(snapshot.pending) || snapshot.status === 'selecting',
       disabled: Boolean(locked) || snapshot.status === 'loading',
       fastMode: fast.mode, onFastOpen: fast.refresh,
+      quickActions: quickActions.map(action => ({id:action.id,
+        label:`${t(action.kind === 'effort' ? 'quickEffort' : 'quickModel')} ${action.name}`,
+        description:t(action.kind === 'effort' ? 'quickEffortDetail' : 'quickModelDetail'),
+      })),
+      onQuickAction: id => submit('speed',id),
       error: (fast.error && t('fastError')) || error || snapshot.error || snapshot.failures.map(f => `${f.name}: ${f.message}`).join('; '),
       onSelect: id => submit('effort',id), onModel: id => submit('model',id),
       onReset: projected.row?.reasoning ? () => submit('reset') : undefined,

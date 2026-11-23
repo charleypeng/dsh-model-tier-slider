@@ -28,6 +28,12 @@ git clone https://github.com/charleypeng/dsh-model-tier-slider.git
 
 选择通过 DSH 原生接口生效：影响当前会话的后续请求，也可能更新新会话的默认选择，不会改变已发出的请求。禁用插件即可恢复原生选择器。
 
+### 按提供方配置快捷项
+
+[速度配置](speed-profiles.json)按 DSH 的提供方 ID 和模型 ID 精确匹配。内置预设覆盖经核对的智谱 GLM 和百炼 Token Plan 路线；模型目录仍须提供所选档位。快捷项位于滑轨下方，点了才生效。快捷档位不等于 Fast，也不保证延迟或用量变化。
+
+自定义路线可在 `providers.<提供方 ID>.models.<模型 ID>` 指定 `lighterEffort`（可用档位 ID，或 `false` 禁用）和 `alternateModel`（同一提供方目录中备选模型的 ID）。只有目标在当前目录可用时才显示。提供方级 `lighterEffort` 可作为默认；`showLighterEffort` 默认关闭未知路线的档位推断。修改配置后运行 `node build.mjs`，刷新已链接的插件页面加载新产物。选择档位或备选模型沿用 DSH 原生选择语义，不会被当成优先服务。
+
 ## 开发
 
 在仓库根目录运行：

@@ -17,6 +17,7 @@
   "files": [
     "index.js",
     "client.js",
+    "speed-profiles.json",
     "cordis.patch.yml",
     "locale/*.json",
     "icon.svg",

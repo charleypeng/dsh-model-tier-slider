@@ -28,6 +28,12 @@ The slider does not handle sign-in, read credentials, or send requests directly 
 
 Changes use DSH’s native model selector API. They apply to future requests in the current session and may also update the default for new sessions. Requests already sent are unaffected. Disable the plugin to restore the built-in selector.
 
+### Configure provider shortcuts
+
+[Speed profiles](speed-profiles.json) match exact DSH provider and model IDs. Presets cover verified Z.AI GLM and Qwen Token Plan routes, subject to the levels reported by the live catalog. Shortcuts appear below the slider and apply only when clicked. A lower reasoning setting is not Fast mode and does not guarantee a change in latency or usage.
+
+Under `providers.<provider ID>.models.<model ID>`, set `lighterEffort` to an available effort ID (or `false` to disable it) and optionally set `alternateModel` to another model ID in the same provider’s catalog. The provider-level `lighterEffort` can supply a default. `showLighterEffort` defaults to off for routes without a profile. After editing, run `node build.mjs` and refresh the page loading the linked plugin. Shortcuts use native DSH selection, not a priority service tier.
+
 ## Development
 
 From the repository root, build the plugin and run its tests:

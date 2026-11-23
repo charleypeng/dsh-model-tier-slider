@@ -1,0 +1,41 @@
+{
+  "showLighterEffort": false,
+  "providers": {
+    "zai": {
+      "models": {
+        "glm-5.3": { "lighterEffort": "low" },
+        "glm-5.3-flash": { "lighterEffort": "low" },
+        "glm-5.3-highspeed": { "lighterEffort": "low" },
+        "glm-5.2": { "lighterEffort": "high" },
+        "glm-5.2-highspeed": { "lighterEffort": "high" }
+      }
+    },
+    "zai-coding-cn": {
+      "models": {
+        "glm-5.3": { "lighterEffort": "low" },
+        "glm-5.3-flash": { "lighterEffort": "low" },
+        "glm-5.3-highspeed": { "lighterEffort": "low" }
+      }
+    },
+    "qwen-token-plan": {
+      "models": {
+        "qwen3.8-max": { "lighterEffort": "low" },
+        "qwen3.8-flash": { "lighterEffort": "low" },
+        "glm-5.3": { "lighterEffort": "low" }
+      }
+    },
+    "qwen-token-plan-cn": {
+      "models": {
+        "qwen3.8-max": { "lighterEffort": "low" },
+        "qwen3.8-flash": { "lighterEffort": "low" },
+        "glm-5.3": { "lighterEffort": "low" }
+      }
+    },
+    "qwen-token-plan-individual": {
+      "models": {
+        "qwen3.8-max": { "lighterEffort": "low" },
+        "qwen3.8-flash": { "lighterEffort": "low" }
+      }
+    }
+  }
+}

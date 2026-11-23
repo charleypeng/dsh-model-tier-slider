@@ -141,11 +141,13 @@ export function createView(React, createPortal) {
  }
  return function TierView({
    tiers = [], activeId, modelLabel, modelId, models = [], busy, disabled,
-   onSelect, onModel, onReset, onFastOpen, fastMode, error, t,
+   onSelect, onModel, onReset, onFastOpen, fastMode, quickActions = [], onQuickAction, error, t,
  }) {
    const text = (key, fallback) => t?.(key) || fallback;
    const [page, setPage] = useState(''), [preview, setPreview] = useState(null);
    const [pendingModel, setPendingModel] = useState(null);
+   const actionDescriptionId = useId();
+   const hasQuickActions = quickActions.length > 0;
    const anchor = useRef(null), panel = useRef(null), slider = useRef(null), dismissTip = useRef(null);
    const drag = useRef(false), keyboard = useRef(false);
    const options = tiers.filter(x => x.available !== false);
@@ -208,14 +210,14 @@ export function createView(React, createPortal) {
        if (p.hidePopover && p.matches(':popover-open')) p.hidePopover();
      };
    }, [open]);
-   // Keyboard entry lands focus inside the pane; pointer entry keeps it on the trigger (no stray ring).
+   // Move focus on keyboard entry, but not onto a quick action that could receive a held activation key.
    useLayoutEffect(() => {
      if (!page || !keyboard.current) return;
      const p = panel.current;
      if (!p) return;
      const target = page === 'model'
        ? (p.querySelector('[aria-checked="true"]:enabled') || p.querySelector('.mtr-option:enabled'))
-       : (p.querySelector('.mtr-fast[aria-disabled="false"]') || slider.current || p.querySelector('.mtr-fast'));
+       : (p.querySelector('.mtr-fast[aria-disabled="false"]') || slider.current || p.querySelector('.mtr-fast') || p);
      target?.focus({ preventScroll: true });
    }, [page, open]);
    useEffect(() => { if (page === 'effort') onFastOpen?.(); }, [page, onFastOpen]);
@@ -249,7 +251,11 @@ export function createView(React, createPortal) {
    const subtitle = ultra ? text('higherUsage', 'Consumes usage limits faster') : model;
    const trigger = button(
      `${model} ${tierLabel}${fastActive ? ` · ${text('fast', 'Fast mode')}` : ''}`,
-     e => { keyboard.current = e.detail === 0; if (page) close(true); else setPage(options.length || fastMode ? 'effort' : 'model'); },
+     e => {
+       keyboard.current = e.detail === 0;
+       if (page) close(true);
+       else setPage(options.length || fastMode || hasQuickActions ? 'effort' : 'model');
+     },
      h(React.Fragment, null,
        h('i', { className: 'mtr-mini', 'aria-hidden': true }, icon('M3 7h7m4 0h7M3 17h11m4 0h3M10 4v6m6 4v6')),
        h('strong', null, model),
@@ -266,7 +272,7 @@ export function createView(React, createPortal) {
    });
    const header = h('div', { className: 'mtr-head' },
      fastMode ? h(FastToggle, { fastMode, ultra, blocked, dismissTip, text }) : h('span', { className: 'mtr-spacer', 'aria-hidden': true }),
-     button(text('selectModel', 'Select model'), () => setPage('model'),
+     button(text('selectModel', 'Select model'), e => { keyboard.current = e.detail === 0; setPage('model'); },
        h(React.Fragment, null,
          h('b', { className: ultra ? 'mtr-ultra-label' : '' }, tierLabel),
          h('small', null, subtitle, ' ›')),
@@ -279,8 +285,9 @@ export function createView(React, createPortal) {
        className: 'mtr-group', key: group.key, role: 'group', 'aria-label': group.name,
      },
        h('div', { className: 'mtr-group-name' }, group.name),
-       group.items.map(m => button(m.label, () => {
+       group.items.map(m => button(m.label, e => {
          if (blocked || m.available === false) return;
+         keyboard.current = e.detail === 0;
          if (m.id === modelId) { setPage('effort'); return; }
          setPendingModel(m.id);
          onModel?.(m.id);
@@ -291,12 +298,23 @@ export function createView(React, createPortal) {
      )))),
      !models.length && h('div', { className: 'mtr-caption' }, text('unsupported', 'Unavailable')),
    );
+   const actions = hasQuickActions && h('div', { className: 'mtr-quick-actions', key: modelId },
+     quickActions.map(({ id, label, description }, i) => {
+       const descriptionId = description ? `${actionDescriptionId}-${i}` : undefined;
+       return h('button', {
+         key: id, type: 'button', className: 'mtr-quick-action', disabled: !!blocked || !onQuickAction,
+         'aria-label': label, 'aria-describedby': descriptionId,
+         onClick: () => { if (!blocked) onQuickAction?.(id); },
+       }, h('span', null, label), description && h('small', { id: descriptionId }, description));
+     }),
+   );
    const popover = h('div', {
-     className: 'mtr-panel', popover: 'manual', role: 'dialog', ref: panel,
+     className: 'mtr-panel', popover: 'manual', role: 'dialog', ref: panel, tabIndex: -1,
      'aria-label': page === 'model' ? text('selectModel', 'Select model') : text('selectEffort', 'Select effort'),
    }, page === 'model' ? modelList : h(React.Fragment, null,
      header,
-     options.length ? track : h('div', { className: 'mtr-caption' }, text('unsupported', 'Unavailable')),
+     options.length ? track : !hasQuickActions && h('div', { className: 'mtr-caption' }, text('unsupported', 'Unavailable')),
+     actions,
    ), error && h('div', { className: 'mtr-error', role: 'alert' }, String(error)));
    return h('span', { className: 'mtr-root' }, trigger, page && createPortal(popover, document.body));
  };

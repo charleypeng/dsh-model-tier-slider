@@ -2,6 +2,51 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {project,selectionFor} from './controller.js';
 import {callCodexFast} from './plugin.js';
+import {readFileSync} from 'node:fs';
+import {resolveSpeedActions, validateSpeedConfig} from './speed.js';
+const profiles = validateSpeedConfig(JSON.parse(readFileSync(new URL('./speed-profiles.json', import.meta.url))));
+const catalog = (provider, model, effort, supported, next = []) => ({status:'ready', current:{provider,model,reasoningEffort:effort}, groups:[
+  {id:provider, name:provider, models:[{id:model,name:model,reasoning:{efforts:supported.map(id => ({id,name:id}))}}, ...next]},
+]});
+
+test('GLM and Qwen shortcuts require exact route, model, and an advertised lower effort', () => {
+  const cases = [
+    ['zai','glm-5.3','max',['low','high','max'],'low'],
+    ['zai','glm-5.2','max',['off','high','max'],'high'],
+    ['zai','glm-5.2','off',['off','high','max'],undefined],
+    ['qwen-token-plan-cn','qwen3.8-max','xhigh',['low','medium','xhigh'],'low'],
+    ['qwen-token-plan','qwen3.7-plus','high',['off','low','high'],undefined],
+    ['qwen-token-plan','qwen3.8-max','xhigh',['medium','xhigh'],undefined],
+    ['other','glm-5.3','max',['low','high','max'],undefined],
+  ];
+  for (const [provider, model, active, supported, expected] of cases) {
+    const result = resolveSpeedActions(project(catalog(provider,model,active,supported)),profiles,false);
+    assert.deepEqual(result.map(action => [action.kind,action.value]), expected ? [['effort',expected]] : []);
+  }
+});
+
+test('explicit alternatives must be available under the same provider and switch through native selection', () => {
+  const config = validateSpeedConfig({providers:{'p/q':{lighterEffort:false,models:{heavy:{alternateModel:'fast'}}}}});
+  const snapshot = catalog('p/q','heavy','high',['low','high'],[{id:'fast',name:'Alternate',reasoning:{defaultEffort:'medium'}}]);
+  const [shortcut] = resolveSpeedActions(project(snapshot), config,false);
+  assert.equal(shortcut.kind,'model');
+  assert.deepEqual(selectionFor(snapshot,shortcut.kind,shortcut.value),{provider:'p/q',model:'fast',reasoningEffort:'medium'});
+  const elsewhere = catalog('p/q','heavy','high',['low','high']);
+  elsewhere.groups.push({id:'other',models:[{id:'fast',name:'Wrong route'}]});
+  assert.deepEqual(resolveSpeedActions(project(elsewhere),config,false), []);
+  assert.deepEqual(resolveSpeedActions(project({...snapshot,current:{provider:'p/q',model:'fast'}}),config,false), []);
+});
+
+test('speed profiles reject arbitrary tier injection and prioritize route/model-specific opt-outs', () => {
+  for (const invalid of [{providers:{example:{service_tier:'priority'}}}, {showLighterEffort:'low'}, {providers:{example:{models:{one:{alternateModel:2}}}}}]) {
+    assert.throws(() => validateSpeedConfig(invalid));
+  }
+  const state = project(catalog('p','m','high',['off','low','high']));
+  const cfg = validateSpeedConfig({showLighterEffort:true,providers:{p:{lighterEffort:'off',models:{m:{lighterEffort:false}}}}});
+  assert.deepEqual(resolveSpeedActions(state,cfg,false), []);
+  assert.deepEqual(resolveSpeedActions(state,{showLighterEffort:true},true), []);
+  assert.equal(resolveSpeedActions(state,{showLighterEffort:true},false)[0].value,'low');
+});
 
 test('Fast uses the same-origin bridge and the exact session/model pair', async () => {
   const signal = new AbortController().signal;
