@@ -8,7 +8,7 @@ export function resolveSpeedActions(projected, config, hasPriority) {
   if (!row) return [];
   const provider = ownSpeedEntry(config?.providers, row.provider);
   const profile = ownSpeedEntry(provider?.models, row.model);
-  const lighterEffort = profile?.lighterEffort ?? provider?.lighterEffort ?? config?.showLighterEffort ?? true;
+  const lighterEffort = profile?.lighterEffort ?? provider?.lighterEffort ?? config?.showLighterEffort ?? false;
   let target;
   if (typeof lighterEffort === 'string') {
     target = tiers.find(tier => tier.id === lighterEffort && tier.available !== false);

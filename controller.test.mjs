@@ -14,6 +14,7 @@ test('GLM and Qwen shortcuts require exact route, model, and an advertised lower
     ['zai','glm-5.3','max',['low','high','max'],'low'],
     ['zai','glm-5.2','max',['off','high','max'],'high'],
     ['zai','glm-5.2','off',['off','high','max'],undefined],
+    ['qwen-token-plan-cn','glm-5.2','max',['high','max'],'high'],
     ['qwen-token-plan-cn','qwen3.8-max','xhigh',['low','medium','xhigh'],'low'],
     ['qwen-token-plan','qwen3.7-plus','high',['off','low','high'],undefined],
     ['qwen-token-plan','qwen3.8-max','xhigh',['medium','xhigh'],undefined],

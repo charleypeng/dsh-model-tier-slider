@@ -304,7 +304,12 @@ export function createView(React, createPortal) {
        return h('button', {
          key: id, type: 'button', className: 'mtr-quick-action', disabled: !!blocked || !onQuickAction,
          'aria-label': label, 'aria-describedby': descriptionId,
-         onClick: () => { if (!blocked) onQuickAction?.(id); },
+         onClick: e => {
+            if (blocked || !onQuickAction) return;
+            // The shortcut can disappear after selection; leave focus on a stable panel target.
+            if (e.currentTarget === document.activeElement) panel.current?.focus({preventScroll:true});
+            onQuickAction(id);
+          },
        }, h('span', null, label), description && h('small', { id: descriptionId }, description));
      }),
    );

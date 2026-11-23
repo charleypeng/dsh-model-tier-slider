@@ -13,6 +13,7 @@
     "reset": "恢复模型默认档位",
     "quickEffort": "推理档改为",
     "quickEffortDetail": "保留当前模型，只调整推理档位。",
+    "quickUnavailable": "快捷项已不可用，请检查当前模型和档位。",
     "quickModel": "切换到",
     "quickModelDetail": "切换到预设的备选模型。",
     "unsupported": "当前模型未提供可选推理档位。",

@@ -21,6 +21,7 @@
       "models": {
         "qwen3.8-max": { "lighterEffort": "low" },
         "qwen3.8-flash": { "lighterEffort": "low" },
+        "glm-5.2": { "lighterEffort": "high" },
         "glm-5.3": { "lighterEffort": "low" }
       }
     },
@@ -28,13 +29,15 @@
       "models": {
         "qwen3.8-max": { "lighterEffort": "low" },
         "qwen3.8-flash": { "lighterEffort": "low" },
+        "glm-5.2": { "lighterEffort": "high" },
         "glm-5.3": { "lighterEffort": "low" }
       }
     },
     "qwen-token-plan-individual": {
       "models": {
         "qwen3.8-max": { "lighterEffort": "low" },
-        "qwen3.8-flash": { "lighterEffort": "low" }
+        "qwen3.8-flash": { "lighterEffort": "low" },
+        "glm-5.2": { "lighterEffort": "high" }
       }
     }
   }

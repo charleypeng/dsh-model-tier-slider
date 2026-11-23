@@ -96,7 +96,7 @@ function makePlugin(React, createPortal, css, dictionaries, speedProfiles) {
       const latest = read();
       if (action === 'speed') {
         const shortcut = resolveSpeedActions(project(latest), speedProfiles, !!fast.mode).find(item => item.id === id);
-        if (!shortcut) return false;
+        if (!shortcut) { setError(t('quickUnavailable')); return false; }
         action = shortcut.kind;
         id = shortcut.value;
       }

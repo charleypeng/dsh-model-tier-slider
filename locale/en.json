@@ -13,6 +13,7 @@
     "reset": "Reset to model default",
     "quickEffort": "Set effort to",
     "quickEffortDetail": "Change reasoning effort without switching models.",
+    "quickUnavailable": "This shortcut is no longer available. Check the current model and effort.",
     "quickModel": "Switch to",
     "quickModelDetail": "Switch to the configured alternate model.",
     "unsupported": "This model does not offer selectable reasoning levels.",
