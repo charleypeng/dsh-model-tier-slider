@@ -38,7 +38,7 @@
 .mtr-fast-tip-body small{font-size:inherit;color:#c4c7cc}
 
 /* Two independently drifting fields, cropped by the same fill edge as the thumb. */
-.mtr-fast-active .mtr-stars{background:none;animation:none;--mtr-fast-drift-speed:1.3}
+.mtr-fast-active .mtr-stars{background:none;animation:none;--mtr-fast-drift-speed:1.95}
 .mtr-fast-active .mtr-stars::before,.mtr-fast-active .mtr-stars::after{content:'';position:absolute;inset:0}
 .mtr-fast-active .mtr-stars::before{
   --mtr-star-travel:61px;
